@@ -30,3 +30,14 @@
 *.exe
 *.out
 *.app
+
+# Additional debug and temporary files (NB)
+*.tlog
+*.lastbuildstate
+*.pdb
+*.ilk
+*.iobj
+*.ipdb
+*.VC.db
+*.log
+*.idb
