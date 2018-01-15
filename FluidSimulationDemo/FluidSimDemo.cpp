@@ -19,6 +19,8 @@
 #include "FX11\d3dx11effect.h"
 #include "MathHelper.h"
 #include "odprintf.h"
+#include "Simulation.h"
+#include <vector>
 
 struct Vertex {
 	XMFLOAT3 Pos;
@@ -61,6 +63,10 @@ private:
 	ID3D11Buffer* mQuadVB; // Vertex buffer for the textured quad
 	ID3D11Buffer* mQuadIB; // Index buffer for the textured quad
 
+	ID3D11Buffer* mPointVB; // Vertex buffer for debug visualization points.
+	ID3D11Buffer* mPointIB; // Index buffer for debug visualization points
+	UINT mPointCount = 0;
+
 	// TEXTURES
 	ID3D11Texture2D* mDiffuseMap; // We keep this so that we can modify it dynamically
 	ID3D11ShaderResourceView* mDiffuseMapSRV;
@@ -84,6 +90,7 @@ private:
 
 	// Local game state
 	float totalTime = 0.0f; // NOTE: This is a problem, since it'll start to have problems after ~ 77 hours.
+	FluidSim fluidSim;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -106,7 +113,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 BoxApp::BoxApp(HINSTANCE hInstance)
 	:D3DApp(hInstance), mQuadVB(0), mQuadIB(0), mFX(0), mTech(0), mInputLayout(0),
 	mZoomFactor(1.0f), mCameraPositionX(0.0f), mCameraPositionY(0.0f),
-	mDiffuseMap(0), mDiffuseMapSRV(0)
+	mDiffuseMap(0), mDiffuseMapSRV(0),
+	fluidSim(mTexWidth, mTexHeight, (float)mTexWidth)
 {
 	mMainWndCaption = L"Fluid Simulation Demo";
 
@@ -123,7 +131,11 @@ BoxApp::BoxApp(HINSTANCE hInstance)
 BoxApp::~BoxApp() {
 	ReleaseCOM(mQuadVB);
 	ReleaseCOM(mQuadIB);
+	ReleaseCOM(mPointVB);
+	ReleaseCOM(mPointIB);
+
 	ReleaseCOM(mDiffuseMapSRV);
+	ReleaseCOM(mDiffuseMap);
 
 	ReleaseCOM(mFX);
 	ReleaseCOM(mInputLayout);
@@ -168,6 +180,10 @@ void BoxApp::UpdateView() {
 	// We want the quad in the center, which measures [-1,1]x[-1,1] in world space, to cover
 	// exactly (times zoomFactor) mTexWidthxmTexHeight pixels.
 	// so 2/[world screen width] = mZoomFactor*mTexWidth/[pixel screen width].
+	// TODO: BUG: If we zoom in too far, the view height becomes too small, which
+	// causes an assertion failure in the XMMath library.
+	// This also fails when the client width or height is equal to 0, which occurs
+	// whenever we minimize the window.
 	XMMATRIX P = XMMatrixOrthographicLH((2.0f*mClientWidth) / (mZoomFactor*mTexWidth),
 		(2.0f*mClientHeight) / (mZoomFactor*mTexHeight),
 		0.5f,
@@ -184,10 +200,12 @@ void BoxApp::UpdateScene(float dt) {
 
 	UpdateView();
 
+	fluidSim.Simulate(dt);
+
 	// Update the texture on the quad - in this case, using a nice sine wave!
 	// This is obviously not the best way to do this, but this is just to get to the
 	// state where this is possible.
-	const int bpp = 4;
+	/*const int bpp = 4;
 	char* newImg = new char[bpp*mTexWidth*mTexHeight];
 	for (int y = 0; y < mTexHeight; y++) {
 		for (int x = 0; x < mTexWidth; x++) {
@@ -197,7 +215,7 @@ void BoxApp::UpdateScene(float dt) {
 			float r = 0.5f - 0.5f*cosf(XM_PI*uvX);
 			float g = 0.5f - 0.5f*cosf(XM_PI*uvY);
 			float b = 0.5f + 0.5f*sinf(totalTime);
-			newImg[bpp*(x + mTexWidth*y) + 3] = 255; // A
+			newImg[bpp*(x + mTexWidth*y) + 3] = (char)255; // A
 			newImg[bpp*(x + mTexWidth*y) + 2] = (char)(255 * b); // B
 			newImg[bpp*(x + mTexWidth*y) + 1] = (char)(255 * g); // G
 			newImg[bpp*(x + mTexWidth*y) + 0] = (char)(255 * r); // R
@@ -208,13 +226,31 @@ void BoxApp::UpdateScene(float dt) {
 	// Generate mipmaps
 	md3dImmediateContext->GenerateMips(mDiffuseMapSRV);
 	// Clean up
-	delete[] newImg; // hopefully this is ok
+	delete[] newImg; // hopefully this is ok*/
+
+	// Update the points from the fluid simulation
+	mPointCount = (UINT)fluidSim.m_particles.size();
+	Vertex* newPoints = new Vertex[mPointCount];
+	for (UINT i = 0; i < mPointCount; i++) {
+		newPoints[i].Pos = XMFLOAT3(2.0f*fluidSim.m_particles[i].X-1.0f,
+			2.0f*fluidSim.m_particles[i].Y-1.0f,
+			-0.1f);
+		newPoints[i].UV = XMFLOAT2((float)((i%3)%2), (float)((i%3)/2));
+	}
+
+	D3D11_MAPPED_SUBRESOURCE mappedResource;
+	ZeroMemory(&mappedResource, sizeof(D3D11_MAPPED_SUBRESOURCE));
+	md3dImmediateContext->Map(mPointVB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
+	memcpy(mappedResource.pData, newPoints, sizeof(Vertex)*mPointCount);
+	md3dImmediateContext->Unmap(mPointVB, 0);
+
+	delete[] newPoints;
 }
 
 void BoxApp::DrawScene() {
 	// Clear render targets
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView,
-		reinterpret_cast<const float*>(&Colors::Blue));
+		reinterpret_cast<const float*>(&Colors::Black));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView,
 		D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
@@ -225,10 +261,10 @@ void BoxApp::DrawScene() {
 
 	UINT stride = sizeof(Vertex);
 	UINT offset = 0;
-	md3dImmediateContext->IASetVertexBuffers(0, 1, &mQuadVB,
+	/*md3dImmediateContext->IASetVertexBuffers(0, 1, &mQuadVB,
 		&stride, &offset);
 	md3dImmediateContext->IASetIndexBuffer(mQuadIB,
-		DXGI_FORMAT_R32_UINT, 0);
+		DXGI_FORMAT_R32_UINT, 0);*/
 
 	// Set constants
 	XMMATRIX world = XMLoadFloat4x4(&mWorld);
@@ -241,11 +277,26 @@ void BoxApp::DrawScene() {
 
 	D3DX11_TECHNIQUE_DESC techDesc;
 	mTech->GetDesc(&techDesc);
-	for (UINT p = 0; p < techDesc.Passes; ++p) {
+	/*for (UINT p = 0; p < techDesc.Passes; ++p) {
 		mTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
 
 		// 6 indices for the quad
 		md3dImmediateContext->DrawIndexed(6, 0, 0);
+	}*/
+
+	// Draw debug points
+	// in this case, as triangles!
+	md3dImmediateContext->IASetVertexBuffers(0, 1, &mPointVB,
+		&stride, &offset);
+	md3dImmediateContext->IASetIndexBuffer(mPointIB,
+		DXGI_FORMAT_R32_UINT, 0);
+
+	for (UINT p = 0; p < techDesc.Passes; ++p) {
+		mTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
+
+		// Round down to the nearest multiple of three
+		UINT numIndices = mPointCount - (mPointCount % 3);
+		md3dImmediateContext->DrawIndexed(numIndices, 0, 0);
 	}
 
 	HR(mSwapChain->Present(0, 0));
@@ -380,6 +431,39 @@ void BoxApp::BuildGeometryBuffers() {
 	D3D11_SUBRESOURCE_DATA iinitData; // Describe what data to initially fill it with
 	iinitData.pSysMem = indices;
 	HR(md3dDevice->CreateBuffer(&ibd, &iinitData, &mQuadIB));
+
+
+	//********************************************************
+	// POINTS
+	//********************************************************
+	// We'll create an empty vertex buffer, which we'll then fill in.
+	UINT count = 4 * mTexWidth*mTexHeight;
+	D3D11_BUFFER_DESC vbd2;
+	vbd2.ByteWidth = sizeof(Vertex) * count; // HARDCODED :(
+	vbd2.Usage = D3D11_USAGE_DYNAMIC; // That's right
+	vbd2.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	vbd2.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	vbd2.MiscFlags = 0;
+	vbd2.StructureByteStride = 0;
+	HR(md3dDevice->CreateBuffer(&vbd2, NULL, &mPointVB));
+
+	// Create the index buffer...
+	UINT* indices2 = new UINT[count];
+	for (UINT i = 0; i < count; i++) {
+		indices2[i] = i;
+	}
+	D3D11_BUFFER_DESC ibd2;
+	ibd2.ByteWidth = sizeof(UINT)*count;
+	ibd2.Usage = D3D11_USAGE_IMMUTABLE;
+	ibd2.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	ibd2.CPUAccessFlags = 0;
+	ibd2.MiscFlags = 0;
+	ibd2.StructureByteStride = 0;
+	D3D11_SUBRESOURCE_DATA iinitData2; // Describe what data to initially fill it with
+	iinitData2.pSysMem = indices2;
+	HR(md3dDevice->CreateBuffer(&ibd2, &iinitData2, &mPointIB));
+
+	delete[] indices2;
 }
 
 void BoxApp::BuildResources() {
@@ -410,15 +494,15 @@ void BoxApp::BuildResources() {
 	for (int y = 0; y < mTexHeight; y++) {
 		for (int x = 0; x < mTexWidth; x++) {
 			if ((x + y) % 2 == 0) {
-				colorData[bpp*(y*mTexWidth + x) + 0] = 255; // A
-				colorData[bpp*(y*mTexWidth + x) + 1] = 255; // G
-				colorData[bpp*(y*mTexWidth + x) + 2] = 255; // B
-				colorData[bpp*(y*mTexWidth + x) + 3] = 255; // R
+				colorData[bpp*(y*mTexWidth + x) + 0] = (char)255; // A
+				colorData[bpp*(y*mTexWidth + x) + 1] = (char)255; // G
+				colorData[bpp*(y*mTexWidth + x) + 2] = (char)255; // B
+				colorData[bpp*(y*mTexWidth + x) + 3] = (char)255; // R
 			} else {
-				colorData[bpp*(y*mTexWidth + x) + 0] = 0; // A
-				colorData[bpp*(y*mTexWidth + x) + 1] = 0; // G
-				colorData[bpp*(y*mTexWidth + x) + 2] = 0; // B
-				colorData[bpp*(y*mTexWidth + x) + 3] = 0; // R
+				colorData[bpp*(y*mTexWidth + x) + 0] = (char)192; // A
+				colorData[bpp*(y*mTexWidth + x) + 1] = (char)192; // G
+				colorData[bpp*(y*mTexWidth + x) + 2] = (char)192; // B
+				colorData[bpp*(y*mTexWidth + x) + 3] = (char)255; // R
 			}
 		}
 	}

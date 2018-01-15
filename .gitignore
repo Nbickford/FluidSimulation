@@ -41,3 +41,6 @@
 *.VC.db
 *.log
 *.idb
+
+# RenderDoc Capture files (NB)
+*.cap

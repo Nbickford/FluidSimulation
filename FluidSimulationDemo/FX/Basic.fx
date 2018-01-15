@@ -13,7 +13,7 @@ cbuffer cbPerObject
 Texture2D gDiffuseMap;
 
 SamplerState samMipMap {
-	Filter = MIN_MAG_MIP_LINEAR;
+	Filter = MIN_LINEAR_MAG_POINT_MIP_LINEAR;
 	AddressU = CLAMP;
 	AddressV = CLAMP;
 };
@@ -48,13 +48,13 @@ float4 PS(VertexOut pin) : SV_Target
 	// Uncomment this line to use iq's nicer bilinear filtering, from
 	// http://www.iquilezles.org/www/articles/texture/texture.htm
 	// and https://www.shadertoy.com/view/XsfGDn!
-	float2 texSize;
-	gDiffuseMap.GetDimensions(texSize.x, texSize.y);
-	float2 uv = pin.TexCoord*texSize + 0.5f;
-	float2 iuv = floor(uv);
-	float2 fuv = frac(uv);
-	uv = iuv + fuv*fuv*(3.0 - 2.0*fuv);
-	pin.TexCoord = (uv - 0.5f) / texSize;
+	//float2 texSize;
+	//gDiffuseMap.GetDimensions(texSize.x, texSize.y);
+	//float2 uv = pin.TexCoord*texSize + 0.5f;
+	//float2 iuv = floor(uv);
+	//float2 fuv = frac(uv);
+	//uv = iuv + fuv*fuv*(3.0 - 2.0*fuv);
+	//pin.TexCoord = (uv - 0.5f) / texSize;
 
 	float4 rgba = gDiffuseMap.Sample(samMipMap, pin.TexCoord);
 	// Since the texture's color is stored in linear space, we need to convert it to SRGB for display.
