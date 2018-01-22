@@ -319,7 +319,7 @@ bool D3DApp::InitDirect3D() {
 	// ID3D11Device::CheckMultisampleQualityLevels method.
 
 	HR(md3dDevice->CheckMultisampleQualityLevels(
-		DXGI_FORMAT_R8G8B8A8_UNORM, 8, &m4xMsaaQuality));
+		DXGI_FORMAT_R8G8B8A8_UNORM, 4, &m4xMsaaQuality));
 	assert(m4xMsaaQuality > 0);
 
 	// 3. Describe the characteristics of the swap chain
@@ -337,7 +337,7 @@ bool D3DApp::InitDirect3D() {
 
 	// Use 4X MSAA?
 	if (mEnable4xMsaa) {
-		sd.SampleDesc.Count = 8;
+		sd.SampleDesc.Count = 4;
 
 		// m4xMsaaQuality is returned via CheckMultisampleQualityLevels().
 		sd.SampleDesc.Quality = m4xMsaaQuality - 1;
@@ -374,7 +374,7 @@ bool D3DApp::InitDirect3D() {
 	HR(dxgiFactory->CreateSwapChain(md3dDevice, &sd, &mSwapChain));
 
 	// Exercise 1: Disable the ALT-ENTER functionality to enter full screen.
-	dxgiFactory->MakeWindowAssociation(mhMainWnd, DXGI_MWA_NO_WINDOW_CHANGES);
+	// dxgiFactory->MakeWindowAssociation(mhMainWnd, DXGI_MWA_NO_WINDOW_CHANGES);
 	// End Exercise 1
 
 	// Release our acquired COM interfaces (because we are done with them).
@@ -439,7 +439,7 @@ void D3DApp::OnResize() {
 
 	// Use 4X MSAA? -- must match swap chain MSAA values.
 	if (mEnable4xMsaa) {
-		depthStencilDesc.SampleDesc.Count = 8;
+		depthStencilDesc.SampleDesc.Count = 4;
 		depthStencilDesc.SampleDesc.Quality = m4xMsaaQuality - 1;
 	}
 	else {

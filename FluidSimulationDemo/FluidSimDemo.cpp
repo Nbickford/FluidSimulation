@@ -27,6 +27,10 @@ struct Vertex {
 	XMFLOAT2 UV;
 };
 
+struct Point {
+	XMFLOAT3 Pos;
+};
+
 class BoxApp :public D3DApp {
 public:
 	BoxApp(HINSTANCE hInstance);
@@ -50,14 +54,17 @@ private:
 	void BuildResources();
 private:
 	// ALGORITHM PARAMETERS
-	const int mTexWidth = 256;
-	const int mTexHeight = 256;
+	const int mTexWidth = 64;
+	const int mTexHeight = 64;
 
 	// INPUT LAYOUTS
 	// Layout: Position {x32, y32, z32}
 	//         Texture  {u32, v32}
 	// Matches definition of struct Vertex above.
 	ID3D11InputLayout* mInputLayout;
+	// Layout: Position {x32, y32, z32}
+	// Matches definition of struct Point above.
+	ID3D11InputLayout* mPointsInputLayout;
 
 	// MESHES
 	ID3D11Buffer* mQuadVB; // Vertex buffer for the textured quad
@@ -77,6 +84,12 @@ private:
 	// Effect variables
 	ID3DX11EffectMatrixVariable* mfxWorldViewProj;
 	ID3DX11EffectShaderResourceVariable* mfxDiffuseMap;
+
+	ID3DX11Effect* mDebugPointsFX;
+	ID3DX11EffectTechnique* mDebugPointsTech;
+	ID3DX11EffectMatrixVariable* mDebugPointsFXWorld;
+	ID3DX11EffectMatrixVariable* mDebugPointsFXViewProj;
+	ID3DX11EffectScalarVariable* mDebugPointsFXPtSize;
 
 	XMFLOAT4X4 mWorld;
 	XMFLOAT4X4 mView;
@@ -112,7 +125,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 // Constructor
 BoxApp::BoxApp(HINSTANCE hInstance)
 	:D3DApp(hInstance), mQuadVB(0), mQuadIB(0), mFX(0), mTech(0), mInputLayout(0),
-	mZoomFactor(1.0f), mCameraPositionX(0.0f), mCameraPositionY(0.0f),
+	mZoomFactor(8.0f), mCameraPositionX(0.0f), mCameraPositionY(0.0f),
 	mDiffuseMap(0), mDiffuseMapSRV(0),
 	fluidSim(mTexWidth, mTexHeight, (float)mTexWidth)
 {
@@ -134,10 +147,15 @@ BoxApp::~BoxApp() {
 	ReleaseCOM(mPointVB);
 	ReleaseCOM(mPointIB);
 
+	// Resources
 	ReleaseCOM(mDiffuseMapSRV);
 	ReleaseCOM(mDiffuseMap);
 
+	// Release effects
 	ReleaseCOM(mFX);
+	ReleaseCOM(mDebugPointsFX);
+
+	// Release input layouts
 	ReleaseCOM(mInputLayout);
 	// TODO(neil): Why not release mTech?
 }
@@ -230,18 +248,17 @@ void BoxApp::UpdateScene(float dt) {
 
 	// Update the points from the fluid simulation
 	mPointCount = (UINT)fluidSim.m_particles.size();
-	Vertex* newPoints = new Vertex[mPointCount];
+	Point* newPoints = new Point[mPointCount];
 	for (UINT i = 0; i < mPointCount; i++) {
 		newPoints[i].Pos = XMFLOAT3(2.0f*fluidSim.m_particles[i].X-1.0f,
 			2.0f*fluidSim.m_particles[i].Y-1.0f,
 			-0.1f);
-		newPoints[i].UV = XMFLOAT2((float)((i%3)%2), (float)((i%3)/2));
 	}
 
 	D3D11_MAPPED_SUBRESOURCE mappedResource;
 	ZeroMemory(&mappedResource, sizeof(D3D11_MAPPED_SUBRESOURCE));
 	md3dImmediateContext->Map(mPointVB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-	memcpy(mappedResource.pData, newPoints, sizeof(Vertex)*mPointCount);
+	memcpy(mappedResource.pData, newPoints, sizeof(Point)*mPointCount);
 	md3dImmediateContext->Unmap(mPointVB, 0);
 
 	delete[] newPoints;
@@ -261,15 +278,16 @@ void BoxApp::DrawScene() {
 
 	UINT stride = sizeof(Vertex);
 	UINT offset = 0;
-	/*md3dImmediateContext->IASetVertexBuffers(0, 1, &mQuadVB,
+	md3dImmediateContext->IASetVertexBuffers(0, 1, &mQuadVB,
 		&stride, &offset);
 	md3dImmediateContext->IASetIndexBuffer(mQuadIB,
-		DXGI_FORMAT_R32_UINT, 0);*/
+		DXGI_FORMAT_R32_UINT, 0);
 
 	// Set constants
 	XMMATRIX world = XMLoadFloat4x4(&mWorld);
 	XMMATRIX view = XMLoadFloat4x4(&mView);
 	XMMATRIX proj = XMLoadFloat4x4(&mProj);
+	XMMATRIX viewProj = view*proj;
 	XMMATRIX worldViewProj = world*view*proj;
 
 	mfxWorldViewProj->SetMatrix(reinterpret_cast<float*>(&worldViewProj));
@@ -277,25 +295,39 @@ void BoxApp::DrawScene() {
 
 	D3DX11_TECHNIQUE_DESC techDesc;
 	mTech->GetDesc(&techDesc);
-	/*for (UINT p = 0; p < techDesc.Passes; ++p) {
+	for (UINT p = 0; p < techDesc.Passes; ++p) {
 		mTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
 
 		// 6 indices for the quad
 		md3dImmediateContext->DrawIndexed(6, 0, 0);
-	}*/
+	}
 
 	// Draw debug points
 	// in this case, as triangles!
+	stride = sizeof(Point);
+	offset = 0;
+	
+	md3dImmediateContext->IASetInputLayout(mPointsInputLayout);
+	md3dImmediateContext->IASetPrimitiveTopology(
+		D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+
+	// Each point should be about 1/4 of a grid cell size, so:
+	// (total width)/(4*(number of cells))
+	mDebugPointsFXPtSize->SetFloat(2.0f/(4.0f*mTexWidth)); // NOTE: Assumes mTexWidth==mTexHeight!
+	mDebugPointsFXWorld->SetMatrix(reinterpret_cast<float*>(&world));
+	mDebugPointsFXViewProj->SetMatrix(reinterpret_cast<float*>(&viewProj));
+
 	md3dImmediateContext->IASetVertexBuffers(0, 1, &mPointVB,
 		&stride, &offset);
 	md3dImmediateContext->IASetIndexBuffer(mPointIB,
 		DXGI_FORMAT_R32_UINT, 0);
 
-	for (UINT p = 0; p < techDesc.Passes; ++p) {
-		mTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
+	mDebugPointsTech->GetDesc(&techDesc);
 
-		// Round down to the nearest multiple of three
-		UINT numIndices = mPointCount - (mPointCount % 3);
+	for (UINT p = 0; p < techDesc.Passes; ++p) {
+		mDebugPointsTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
+
+		UINT numIndices = mPointCount;
 		md3dImmediateContext->DrawIndexed(numIndices, 0, 0);
 	}
 
@@ -439,7 +471,7 @@ void BoxApp::BuildGeometryBuffers() {
 	// We'll create an empty vertex buffer, which we'll then fill in.
 	UINT count = 4 * mTexWidth*mTexHeight;
 	D3D11_BUFFER_DESC vbd2;
-	vbd2.ByteWidth = sizeof(Vertex) * count; // HARDCODED :(
+	vbd2.ByteWidth = sizeof(Point) * count; // HARDCODED :(
 	vbd2.Usage = D3D11_USAGE_DYNAMIC; // That's right
 	vbd2.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	vbd2.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -494,15 +526,15 @@ void BoxApp::BuildResources() {
 	for (int y = 0; y < mTexHeight; y++) {
 		for (int x = 0; x < mTexWidth; x++) {
 			if ((x + y) % 2 == 0) {
-				colorData[bpp*(y*mTexWidth + x) + 0] = (char)255; // A
-				colorData[bpp*(y*mTexWidth + x) + 1] = (char)255; // G
-				colorData[bpp*(y*mTexWidth + x) + 2] = (char)255; // B
-				colorData[bpp*(y*mTexWidth + x) + 3] = (char)255; // R
+				colorData[bpp*(y*mTexWidth + x) + 0] = (char)32; // R
+				colorData[bpp*(y*mTexWidth + x) + 1] = (char)32; // G
+				colorData[bpp*(y*mTexWidth + x) + 2] = (char)32; // B
+				colorData[bpp*(y*mTexWidth + x) + 3] = (char)255; // A
 			} else {
-				colorData[bpp*(y*mTexWidth + x) + 0] = (char)192; // A
-				colorData[bpp*(y*mTexWidth + x) + 1] = (char)192; // G
-				colorData[bpp*(y*mTexWidth + x) + 2] = (char)192; // B
-				colorData[bpp*(y*mTexWidth + x) + 3] = (char)255; // R
+				colorData[bpp*(y*mTexWidth + x) + 0] = (char)16; // R
+				colorData[bpp*(y*mTexWidth + x) + 1] = (char)16; // G
+				colorData[bpp*(y*mTexWidth + x) + 2] = (char)16; // B
+				colorData[bpp*(y*mTexWidth + x) + 3] = (char)255; // A
 			}
 		}
 	}
@@ -535,6 +567,9 @@ void BoxApp::BuildFX() {
 	shaderFlags |= D3D10_SHADER_SKIP_OPTIMIZATION;
 #endif
 
+	//--------------------------------
+	// BASIC FX
+	//--------------------------------
 	ID3DBlob* compiledShader = d3dUtil::CompileShader(L"FX\\Basic.fx", nullptr, "", "fx_5_0");
 
 	HR(D3DX11CreateEffectFromMemory(
@@ -550,6 +585,23 @@ void BoxApp::BuildFX() {
 		"gWorldViewProj")->AsMatrix();
 	mfxDiffuseMap = mFX->GetVariableByName(
 		"gDiffuseMap")->AsShaderResource();
+
+	//--------------------------------
+	// DEBUG POINTS FX
+	//--------------------------------
+	compiledShader = d3dUtil::CompileShader(L"FX\\DebugPointsQuads.fx", nullptr, "", "fx_5_0");
+
+	HR(D3DX11CreateEffectFromMemory(
+		compiledShader->GetBufferPointer(),
+		compiledShader->GetBufferSize(),
+		0, md3dDevice, &mDebugPointsFX));
+
+	ReleaseCOM(compiledShader);
+
+	mDebugPointsTech = mDebugPointsFX->GetTechniqueByName("ColorTech");
+	mDebugPointsFXPtSize = mDebugPointsFX->GetVariableByName("gPtSize")->AsScalar();
+	mDebugPointsFXWorld = mDebugPointsFX->GetVariableByName("gWorld")->AsMatrix();
+	mDebugPointsFXViewProj = mDebugPointsFX->GetVariableByName("gViewProj")->AsMatrix();
 }
 
 void BoxApp::BuildVertexLayout() {
@@ -568,5 +620,20 @@ void BoxApp::BuildVertexLayout() {
 	HR(md3dDevice->CreateInputLayout(vertexDesc, 2,
 		passDesc.pIAInputSignature,
 		passDesc.IAInputSignatureSize, &mInputLayout));
+
+	//----------------------------------
+	// POINTS
+	//----------------------------------
+	D3D11_INPUT_ELEMENT_DESC pointsDesc[]=
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
+		D3D11_INPUT_PER_VERTEX_DATA, 0}
+	};
+
+	// Create the input layout
+	mDebugPointsTech->GetPassByIndex(0)->GetDesc(&passDesc);
+	HR(md3dDevice->CreateInputLayout(pointsDesc, 1,
+		passDesc.pIAInputSignature,
+		passDesc.IAInputSignatureSize, &mPointsInputLayout));
 }
 #endif

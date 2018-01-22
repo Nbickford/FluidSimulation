@@ -56,6 +56,9 @@ FluidSim::~FluidSim() {
 }
 
 void FluidSim::Simulate(float dt) {
+	// Clamp maximum dt
+	dt = MathHelper::Clamp(dt, 0.0f, 0.5f);
+
 	// For the moment, we just have a particle trace a straight line.
 	// Suppose a particle moves with velocity (ux, uy) m/s.
 	// Then the particle moves (ux,uy)*dt meters in dt seconds.

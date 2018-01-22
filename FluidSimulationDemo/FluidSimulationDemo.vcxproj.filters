@@ -112,5 +112,11 @@
     <FxCompile Include="FX\Basic.fx">
       <Filter>FX</Filter>
     </FxCompile>
+    <FxCompile Include="FX\DebugPoints.fx">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\DebugPointsQuads.fx">
+      <Filter>FX</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>
