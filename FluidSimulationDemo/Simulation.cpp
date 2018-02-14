@@ -19,7 +19,7 @@ FluidSim::FluidSim(int xSize, int ySize, float CellsPerMeter)
 	// MU
 	for (int y = 0; y < ySize; y++) {
 		for (int x = 0; x < xSize + 1; x++){
-			XMFLOAT2 vc = vectorCurl((x-0.5f)/CellsPerMeter, y/CellsPerMeter);
+			XMFLOAT2 vc = vectorCurl(x/CellsPerMeter, (y+0.5f)/CellsPerMeter);
 			U(x, y) = vc.x;
 		}
 	}
@@ -27,7 +27,7 @@ FluidSim::FluidSim(int xSize, int ySize, float CellsPerMeter)
 	// MV
 	for (int y = 0; y < ySize + 1; y++) {
 		for (int x = 0; x < xSize; x++) {
-			XMFLOAT2 vc = vectorCurl(x/CellsPerMeter, (y - 0.5f)/CellsPerMeter);
+			XMFLOAT2 vc = vectorCurl((x+0.5f)/CellsPerMeter, y/CellsPerMeter);
 			V(x, y) = vc.y;
 		}
 	}
@@ -63,16 +63,33 @@ void FluidSim::Simulate(float dt) {
 	// [Bridson, pg. 109-110], based on [Ralston, 1962].
 	// For the velocity calculation, suppose a particle moves with velocity (ux, uy) m/s.
 	// Then the particle moves (ux,uy)*dt meters in dt seconds, which we can invert.
-	int len = m_particles.size();
-	for (int i = 0; i < len; i++) {
-		XMFLOAT2 k1 = vectorCurl(m_particles[i].X,                 m_particles[i].Y);
-		XMFLOAT2 k2 = vectorCurl(m_particles[i].X +  0.5f*dt*k1.x, m_particles[i].Y +  0.5f*dt*k1.y);
-		XMFLOAT2 k3 = vectorCurl(m_particles[i].X + 0.75f*dt*k1.x, m_particles[i].Y + 0.75f*dt*k1.y);
 
-		m_particles[i].uX = (2.0f / 9.0f)*k1.x + (3.0f / 9.0f)*k2.x + (4.0f / 9.0f)*k3.x;
-		m_particles[i].uY = (2.0f / 9.0f)*k1.y + (3.0f / 9.0f)*k2.y + (4.0f / 9.0f)*k3.y;
-		m_particles[i].X += dt*m_particles[i].uX;
-		m_particles[i].Y += dt*m_particles[i].uY;
+	// Set to false to use interpolate and the computed MAC grids
+	if (false) {
+		int len = m_particles.size();
+		for (int i = 0; i < len; i++) {
+			XMFLOAT2 k1 = vectorCurl(m_particles[i].X, m_particles[i].Y);
+			XMFLOAT2 k2 = vectorCurl(m_particles[i].X + 0.5f*dt*k1.x, m_particles[i].Y + 0.5f*dt*k1.y);
+			XMFLOAT2 k3 = vectorCurl(m_particles[i].X + 0.75f*dt*k2.x, m_particles[i].Y + 0.75f*dt*k2.y);
+
+			m_particles[i].uX = (2.0f / 9.0f)*k1.x + (3.0f / 9.0f)*k2.x + (4.0f / 9.0f)*k3.x;
+			m_particles[i].uY = (2.0f / 9.0f)*k1.y + (3.0f / 9.0f)*k2.y + (4.0f / 9.0f)*k3.y;
+			m_particles[i].X += dt*m_particles[i].uX;
+			m_particles[i].Y += dt*m_particles[i].uY;
+		}
+
+	} else {
+		int len = m_particles.size();
+		for (int i = 0; i < len; i++) {
+			XMFLOAT2 k1 = InterpolateMACCell(mX*m_particles[i].X, mY*m_particles[i].Y);
+			XMFLOAT2 k2 = InterpolateMACCell(mX*(m_particles[i].X + 0.5f*dt*k1.x), mY*(m_particles[i].Y + 0.5f*dt*k1.y));
+			XMFLOAT2 k3 = InterpolateMACCell(mX*(m_particles[i].X + 0.75f*dt*k2.x), mY*(m_particles[i].Y + 0.75f*dt*k2.y));
+
+			m_particles[i].uX = (2.0f / 9.0f)*k1.x + (3.0f / 9.0f)*k2.x + (4.0f / 9.0f)*k3.x;
+			m_particles[i].uY = (2.0f / 9.0f)*k1.y + (3.0f / 9.0f)*k2.y + (4.0f / 9.0f)*k3.y;
+			m_particles[i].X += dt*m_particles[i].uX;
+			m_particles[i].Y += dt*m_particles[i].uY;
+		}
 	}
 }
 
@@ -95,7 +112,7 @@ XMFLOAT2 vectorFunction(float x, float y) {
 	float dx = (peaks(x + eps, y) - p0) / eps;
 	float dy = (peaks(x, y + eps) - p0) / eps;
 	// Scale by a function to go to 0 at +-3
-	float scale = max(0.0f,1.0-powf(max(abs(x), abs(y)) / 3.0f, 16.0f));
+	float scale = 1.0;// max(0.0f, 1.0 - powf(max(abs(x), abs(y)) / 3.0f, 16.0f));
 	return XMFLOAT2(dx*scale, dy*scale);
 }
 

@@ -59,20 +59,22 @@ private:
 		// Interpolating between velocities on a MAC grid...gets a bit tricky.
 		// It's easiest to follow this if you draw a MAC grid in 2D and follow it out.
 
-		// U
 		// Compute indices and fractional parts
+		// Normal values (relative to grid in its direction)
+		float nI = MathHelper::Clamp(i, 0.0f, static_cast<float>(mX));
+		float nJ = MathHelper::Clamp(j, 0.0f, static_cast<float>(mY));
 		// Truncated values (relative to non-I, J, or K grid)
 		float tI = MathHelper::Clamp(i - 0.5f, 0.0f, mX - 1.0f);
 		float tJ = MathHelper::Clamp(j - 0.5f, 0.0f, mY - 1.0f);
 
 		// Compute normal and truncated integer parts and normal and truncated fractional parts
-		int iI = (int)std::floor(i); if (iI == mX) iI--;
-		int iJ = (int)std::floor(j); if (iJ == mY) iJ--;
+		int iI = (int)std::floor(nI); if (iI == mX) iI--;
+		int iJ = (int)std::floor(nJ); if (iJ == mY) iJ--;
 		int iTI = (int)std::floor(tI); if (iTI == mX - 1) iTI--;
 		int iTJ = (int)std::floor(tJ); if (iTJ == mY - 1) iTJ--;
 
-		float fI = i - iI;
-		float fJ = j - iJ;
+		float fI = nI - iI;
+		float fJ = nJ - iJ;
 		float fTI = tI - iTI;
 		float fTJ = tJ - iTJ;
 
