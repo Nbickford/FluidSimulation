@@ -77,6 +77,7 @@ float peaks(float x, float y) {
 	return 3.0f*(1.0f - x)*(1.0f - x)*expf(-x*x - (y + 1.f)*(y + 1.f))
 		- 10.f*(0.2f*x - x*x*x + y*y*y*y*y)*expf(-x*x - y*y)
 		- expf(-(x + 1.0f)*(x + 1.0f) - y*y) / 3.0f;
+	// return sinf(x) + sinf(y); // Simpler peaks function
 }
 
 // Computes the 2D vector field N at the point (x,y)
@@ -90,7 +91,7 @@ XMFLOAT2 vectorFunction(float x, float y) {
 	float dx = (peaks(x + eps, y) - p0) / eps;
 	float dy = (peaks(x, y + eps) - p0) / eps;
 	// Scale by a function to go to 0 at +-3
-	float scale = powf(max(0.0f,1.0f - max(abs(x), abs(y)) / 3.0f), 8.0f);
+	float scale = max(0.0f,1.0-powf(max(abs(x), abs(y)) / 3.0f, 16.0f));
 	return XMFLOAT2(dx*scale, dy*scale);
 }
 
