@@ -313,7 +313,11 @@ void BoxApp::DrawScene() {
 
 	// Each point should be about 1/4 of a grid cell size, so:
 	// (total width)/(4*(number of cells))
-	mDebugPointsFXPtSize->SetFloat(2.0f/(4.0f*mTexWidth)); // NOTE: Assumes mTexWidth==mTexHeight!
+	// However, from the projection calculation above, we should also have that since [-1,1] in x in world-space covers
+	// zoomFactor*mTexWidth pixels (magnification of (zoomFactor*mTexWidth)/2), the point size should also be at least 
+	// 2/(zoomFactor*mTexWidth).
+	mDebugPointsFXPtSize->SetFloat(max(2.0f/(4.0f*mTexWidth),
+		2.0f/(mZoomFactor*mTexWidth))); // NOTE: Assumes mTexWidth==mTexHeight!
 	mDebugPointsFXWorld->SetMatrix(reinterpret_cast<float*>(&world));
 	mDebugPointsFXViewProj->SetMatrix(reinterpret_cast<float*>(&viewProj));
 

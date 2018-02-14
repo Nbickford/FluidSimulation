@@ -38,7 +38,7 @@ void GS(point VertexOut gin[1],
 	uint primID : SV_PrimitiveID,
 	inout TriangleStream<GeoOut> triStream) // Outputs vertices as a triangle strip
 {
-	// Position in homogeneous clip space
+	// Position in world space
 	float4 pos = gin[0].PosH;
 	// Just add a small size to the x and y coordinates
 
