@@ -59,14 +59,18 @@ void FluidSim::Simulate(float dt) {
 	// Clamp maximum dt
 	dt = MathHelper::Clamp(dt, 0.0f, 0.5f);
 
-	// For the moment, we just have a particle trace a straight line.
-	// Suppose a particle moves with velocity (ux, uy) m/s.
-	// Then the particle moves (ux,uy)*dt meters in dt seconds.
+	// Tracing particle paths and velocities using an RK3 method
+	// [Bridson, pg. 109-110], based on [Ralston, 1962].
+	// For the velocity calculation, suppose a particle moves with velocity (ux, uy) m/s.
+	// Then the particle moves (ux,uy)*dt meters in dt seconds, which we can invert.
 	int len = m_particles.size();
 	for (int i = 0; i < len; i++) {
-		XMFLOAT2 nv = vectorCurl(m_particles[i].X, m_particles[i].Y);
-		m_particles[i].uX = nv.x;
-		m_particles[i].uY = nv.y;
+		XMFLOAT2 k1 = vectorCurl(m_particles[i].X,                 m_particles[i].Y);
+		XMFLOAT2 k2 = vectorCurl(m_particles[i].X +  0.5f*dt*k1.x, m_particles[i].Y +  0.5f*dt*k1.y);
+		XMFLOAT2 k3 = vectorCurl(m_particles[i].X + 0.75f*dt*k1.x, m_particles[i].Y + 0.75f*dt*k1.y);
+
+		m_particles[i].uX = (2.0f / 9.0f)*k1.x + (3.0f / 9.0f)*k2.x + (4.0f / 9.0f)*k3.x;
+		m_particles[i].uY = (2.0f / 9.0f)*k1.y + (3.0f / 9.0f)*k2.y + (4.0f / 9.0f)*k3.y;
 		m_particles[i].X += dt*m_particles[i].uX;
 		m_particles[i].Y += dt*m_particles[i].uY;
 	}
