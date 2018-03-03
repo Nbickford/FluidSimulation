@@ -43,6 +43,9 @@ public:
 	// Wait, why am I even doing this in 3D already???
 	//char* CreateTextureVisualization() const;
 	void Simulate(float dt);
+	void Advect(std::vector<Particle> &particles, float dt);
+	void AddBodyForces(float dt);
+	void Project(float dt);
 private:
 	//******************************************************
 	// 2D METHODS
@@ -52,7 +55,7 @@ private:
 	// u(i,j,k) = u_{i-1/2,j} (Returns a reference)
 	float& U(int i, int j) { return m_MU[i + (mX + 1)*j]; }
 
-	// v(i,j,k) = u_{i,j-1/2,k} (Returns a reference)
+	// v(i,j,k) = v_{i,j-1/2,k} (Returns a reference)
 	float& V(int i, int j) { return m_MV[i + mX*j]; }
 
 	XMFLOAT2 InterpolateMACCell(float i, float j) {
