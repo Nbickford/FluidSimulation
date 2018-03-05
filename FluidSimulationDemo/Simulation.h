@@ -36,6 +36,7 @@ class FluidSim {
 public:
 	FluidSim(int xSize, int ySize, float CellsPerMeter);
 	~FluidSim();
+	void ResetSimulation();
 	//FluidSim(int xSize, int ySize, int zSize, float CellsPerMeter);
 
 	// Returns a NEW character array representing a visualization of a texture
@@ -43,6 +44,7 @@ public:
 	// Wait, why am I even doing this in 3D already???
 	//char* CreateTextureVisualization() const;
 	void Simulate(float dt);
+private:
 	void Advect(std::vector<Particle> &particles, float dt);
 	void AddBodyForces(float dt);
 	void Project(float dt);
@@ -63,43 +65,39 @@ private:
 		// It's easiest to follow this if you draw a MAC grid in 2D and follow it out.
 
 		// Compute indices and fractional parts
-		// Normal values (relative to grid in its direction)
-		float nI = MathHelper::Clamp(i, 0.0f, static_cast<float>(mX));
-		float nJ = MathHelper::Clamp(j, 0.0f, static_cast<float>(mY));
-		// Truncated values (relative to non-I, J, or K grid)
-		float tI = MathHelper::Clamp(i - 0.5f, 0.0f, mX - 1.0f);
-		float tJ = MathHelper::Clamp(j - 0.5f, 0.0f, mY - 1.0f);
+		// Normal values (relative to non-I, J, or K grid)
+		float nI = MathHelper::Clamp(i, 0.0f, mX - 1.0f);
+		float nJ = MathHelper::Clamp(j, 0.0f, mY - 1.0f);
+		// Extended values (relative to grid in that direction)
+		float eI = MathHelper::Clamp(i + 0.5f, 0.0f, static_cast<float>(mX));
+		float eJ = MathHelper::Clamp(j + 0.5f, 0.0f, static_cast<float>(mY));
 
 		// Compute normal and truncated integer parts and normal and truncated fractional parts
-		int iI = (int)std::floor(nI); if (iI == mX) iI--;
-		int iJ = (int)std::floor(nJ); if (iJ == mY) iJ--;
-		int iTI = (int)std::floor(tI); if (iTI == mX - 1) iTI--;
-		int iTJ = (int)std::floor(tJ); if (iTJ == mY - 1) iTJ--;
+		int iI = (int)std::floor(nI); if (iI == mX-1) iI--;
+		int iJ = (int)std::floor(nJ); if (iJ == mY-1) iJ--;
+		int iEI = (int)std::floor(eI); if (iEI == mX) iEI--;
+		int iEJ = (int)std::floor(eJ); if (iEJ == mY) iEJ--;
 
 		float fI = nI - iI;
 		float fJ = nJ - iJ;
-		float fTI = tI - iTI;
-		float fTJ = tJ - iTJ;
+		float fEI = eI - iEI;
+		float fEJ = eJ - iEJ;
 
 		// Trilinear interpolation for u
-		// We basically just trilinearly interpolate (i, tJ) on the MAC U grid.
+		// We basically just trilinearly interpolate (eI, j) on the MAC U grid.
 		// Interpolate along i
-		float t00 = MathHelper::Lerp(U(iI, iTJ), U(iI + 1, iTJ), fI);
-		float t10 = MathHelper::Lerp(U(iI, iTJ + 1), U(iI + 1, iTJ + 1), fI);
+		float t00 = MathHelper::Lerp(U(iEI, iJ), U(iEI + 1, iJ), fEI);
+		float t10 = MathHelper::Lerp(U(iEI, iJ + 1), U(iEI + 1, iJ + 1), fEI);
 
 		// Interpolate along j
-		float uFinal = MathHelper::Lerp(t00, t10, fTJ);
+		float uFinal = MathHelper::Lerp(t00, t10, fJ);
 
 		// OK! Now that you've got the hang of it, here's trilinear interpolation for v.
-		// Realistically, we could probably shorten this by a factor of 2 by just using the fact
-		// that U and V are just staggered grids, and writing a single function for that.
-		// This is also a really good reason for implementing this on the GPU - we get bilinear
-		// interpolation, at least, for "free".
 		// Interpolate (tI, j) on the MAC V grid.
-		t00 = MathHelper::Lerp(V(iTI, iJ), V(iTI + 1, iJ), fTI);
-		t10 = MathHelper::Lerp(V(iTI, iJ + 1), V(iTI + 1, iJ + 1), fTI);
+		t00 = MathHelper::Lerp(V(iI, iEJ), V(iI + 1, iEJ), fI);
+		t10 = MathHelper::Lerp(V(iI, iEJ + 1), V(iI + 1, iEJ + 1), fI);
 
-		float vFinal = MathHelper::Lerp(t00, t10, fJ);
+		float vFinal = MathHelper::Lerp(t00, t10, fEJ);
 
 		return XMFLOAT2(uFinal, vFinal);
 	}

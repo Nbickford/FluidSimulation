@@ -421,6 +421,9 @@ void BoxApp::OnCharacterKey(char keyCode) {
 		mCameraPositionX = 0.0f; // TODO: fix this for the case of non-even windows
 		mCameraPositionY = 0.0f;
 		break;
+	case 'r':
+		fluidSim.ResetSimulation();
+		break;
 	//default:
 	//	odprintf("Unknown character: %c\n", keyCode);
 	//	break;

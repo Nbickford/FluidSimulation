@@ -8,6 +8,7 @@
 
 #include "Simulation.h"
 #include "odprintf.h"
+#include <limits>
 
 FluidSim::FluidSim(int xSize, int ySize, float CellsPerMeter)
 	:mX(xSize), mY(ySize), m_CellsPerMeter(CellsPerMeter),
@@ -16,68 +17,7 @@ FluidSim::FluidSim(int xSize, int ySize, float CellsPerMeter)
 	m_MU = new float[(xSize + 1)*ySize];
 	m_MV = new float[xSize*(ySize + 1)];
 
-	// TODO: the scale on this for vectorCurl is incorrect
-	// MU
-	for (int y = 0; y < ySize; y++) {
-		for (int x = 0; x < xSize + 1; x++){
-			XMFLOAT2 vc = vectorCurl(x/CellsPerMeter, (y+0.5f)/CellsPerMeter);
-			U(x, y) = vc.x;
-		}
-	}
-
-	// MV
-	for (int y = 0; y < ySize + 1; y++) {
-		for (int x = 0; x < xSize; x++) {
-			XMFLOAT2 vc = vectorCurl((x+0.5f)/CellsPerMeter, y/CellsPerMeter);
-			V(x, y) = vc.y;
-		}
-	}
-
-	// Create a uniform distribution of particles
-	// and set their velocities
-	for (int y = 0; y < ySize; y++) {
-		for (int x = 0; x < xSize; x++) {
-			float px = x + 0.25f;
-			float py = y + 0.25f;
-			float rX = px / m_CellsPerMeter; //real-world X
-			float rY = py / m_CellsPerMeter;
-			float d = 0.5f / m_CellsPerMeter;
-			m_particles.emplace_back(rX, rY, vectorCurl(rX, rY));
-			m_particles.emplace_back(rX+d, rY, vectorCurl((rX+d), rY));
-			m_particles.emplace_back(rX, rY+d, vectorCurl(rX, rY+d));
-			m_particles.emplace_back(rX+d, rY+d, vectorCurl((rX+d), (rY + d)));
-		}
-	}
-
-	// TEST
-	// This doesn't do anything yet
-	Project(1.0);
-
-	float maxdiv = 0;
-	int maxdivX = -1;
-	int maxdivY = -1;
-	odprintf("{");
-	for (int y = 0; y < ySize; y++) {
-		odprintf("{");
-		for (int x = 0; x < xSize; x++) {
-			float div = U(x + 1, y) + V(x, y + 1) - U(x, y) - V(x, y);
-			if (abs(div) > abs(maxdiv)) {
-				maxdiv = div;
-				maxdivX = x;
-				maxdivY = y;
-			}
-			odprintf("%f", div);
-			if (x != xSize - 1) {
-				odprintf(",");
-			}
-		}
-		odprintf("}");
-		if (y != ySize - 1) {
-			odprintf(",\n");
-		}
-	}
-	odprintf("}");
-	odprintf("Maximum divergence of %f is at (x,y)=(%i, %i)", maxdiv, maxdivX, maxdivY);
+	ResetSimulation();
 }
 
 FluidSim::~FluidSim() {
@@ -86,13 +26,81 @@ FluidSim::~FluidSim() {
 	delete[] m_MV;
 }
 
+void FluidSim::ResetSimulation() {
+	// TODO: the scale on this for vectorCurl is incorrect
+	// MU
+	for (int y = 0; y < mY; y++) {
+		for (int x = 0; x < mX + 1; x++) {
+			XMFLOAT2 vc = vectorCurl(x / m_CellsPerMeter, (y + 0.5f) / m_CellsPerMeter);
+			U(x, y) = vc.x;
+		}
+	}
+
+	// MV
+	for (int y = 0; y < mY + 1; y++) {
+		for (int x = 0; x < mX; x++) {
+			XMFLOAT2 vc = vectorCurl((x + 0.5f) / m_CellsPerMeter, y / m_CellsPerMeter);
+			V(x, y) = vc.y;
+		}
+	}
+
+	// Create a uniform distribution of particles
+	// and set their velocities
+	m_particles.clear();
+	for (int y = 0; y < mY; y++) {
+		for (int x = 0; x < mX; x++) {
+			float px = x + 0.25f;
+			float py = y + 0.25f;
+			float rX = px / m_CellsPerMeter; //real-world X
+			float rY = py / m_CellsPerMeter;
+			float d = 0.5f / m_CellsPerMeter;
+			m_particles.emplace_back(rX, rY, vectorCurl(rX, rY));
+			m_particles.emplace_back(rX + d, rY, vectorCurl((rX + d), rY));
+			m_particles.emplace_back(rX, rY + d, vectorCurl(rX, rY + d));
+			m_particles.emplace_back(rX + d, rY + d, vectorCurl((rX + d), (rY + d)));
+		}
+	}
+
+	// TEST
+	Project(1.0);
+
+	bool pAr = false;
+
+	// Print divergence
+	float maxdiv = 0;
+	int maxdivX = -1;
+	int maxdivY = -1;
+	if (pAr) odprintf("{");
+	for (int y = 0; y < mY; y++) {
+		if (pAr) odprintf("{");
+		for (int x = 0; x < mX; x++) {
+			float div = U(x + 1, y) + V(x, y + 1) - U(x, y) - V(x, y);
+			if (abs(div) > abs(maxdiv)) {
+				maxdiv = div;
+				maxdivX = x;
+				maxdivY = y;
+			}
+			if (pAr) odprintf("%f", div);
+			if (x != mX - 1) {
+				if (pAr) odprintf(",");
+			}
+		}
+		if (pAr) odprintf("}");
+		if (y != mY - 1) {
+			if (pAr) odprintf(",\n");
+		}
+	}
+	if (pAr) odprintf("}");
+	odprintf("Maximum divergence of %f is at (x,y)=(%i, %i)", maxdiv, maxdivX, maxdivY);
+}
+
 void FluidSim::Simulate(float dt) {
 	// Clamp maximum dt
-	dt = MathHelper::Clamp(dt, 0.0f, 0.5f);
+	dt = MathHelper::Clamp(dt, 0.0f, 1.0f/15.0f);
 
 	Advect(m_particles, dt);
 
-	//AddBodyForces(dt);
+	// AddBodyForces(dt);
 
 	Project(dt);
 }
@@ -104,8 +112,8 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 	// Then the particle moves (ux,uy)*dt meters in dt seconds, which we can invert.
 
 	// Set to false to use interpolate and the computed MAC grids
+	int len = particles.size();
 	if (false) {
-		int len = particles.size();
 		for (int i = 0; i < len; i++) {
 			XMFLOAT2 k1 = vectorCurl(particles[i].X, particles[i].Y);
 			XMFLOAT2 k2 = vectorCurl(particles[i].X + 0.5f*dt*k1.x, particles[i].Y + 0.5f*dt*k1.y);
@@ -118,9 +126,9 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 		}
 
 	} else {
-		int len = particles.size();
 		for (int i = 0; i < len; i++) {
-			XMFLOAT2 k1 = InterpolateMACCell(mX*particles[i].X, mY*particles[i].Y);
+			XMFLOAT2 k1 = InterpolateMACCell(mX*particles[i].X, mY*particles[i].Y); // should actually be cellsPerMeter
+			//XMFLOAT2 k1 = XMFLOAT2(particles[i].uX, particles[i].uY);
 			XMFLOAT2 k2 = InterpolateMACCell(mX*(particles[i].X + 0.5f*dt*k1.x), mY*(particles[i].Y + 0.5f*dt*k1.y));
 			XMFLOAT2 k3 = InterpolateMACCell(mX*(particles[i].X + 0.75f*dt*k2.x), mY*(particles[i].Y + 0.75f*dt*k2.y));
 
@@ -130,6 +138,97 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 			particles[i].Y += dt*particles[i].uY;
 		}
 	}
+
+	// VELOCITY UPDATES
+	// Just do a simple PIC update for advection
+	// since we don't (necessarily) have the code to do the two interpolations necessary for FLIP (yet...)
+	// ...actually, we can use the linearity of interpoation to handle this...
+
+	// Implements Bridson's equation 7.2 with a trilinear hat kernel (pg. 112) for transferring particle velocities
+	// to the grid.
+
+	// Accumulates weights
+	float* uAmts = new float[(mX + 1)*mY](); // sets to 0, hopefully
+	float* vAmts = new float[mX*(mY + 1)]();
+
+	// Clear u and v velocity arrays
+	for (int y = 0; y < mY; y++) {
+		for (int x = 0; x < mX + 1; x++) {
+			U(x, y) = 0.0f;
+		}
+	}
+	for (int y = 0; y < mY + 1; y++) {
+		for (int x = 0; x < mX; x++) {
+			V(x, y) = 0.0f;
+		}
+	}
+
+	for (int i = 0; i < len; i++) {
+		// We have to assume that particles can be outside the grid for the moment :(
+		float px = particles[i].X*m_CellsPerMeter;
+		float py = particles[i].Y*m_CellsPerMeter;
+
+		if (px<-0.5 || px>(mX + 0.5) || py<-0.5 || py>(mY + 0.5)) {
+			continue; // out of bounds, sorry
+		}
+		// ensured: -0.5<px<mX+0.5 and -0.5<py<mY+0.5
+
+		// Remember, the centers of squares are actually integers, not half-integers.
+		// (This may, in fact, be a bug in the interpolation routine - I need to check)
+		// U
+		// affects values: y=floor(py) and floor(py)+1
+		//                 x=floor(px+1/2)-1/2 and floor(px+1/2)+1/2 ...though for indices we add 1/2 to each of those
+		int iy = floorf(py);
+		int ix = floorf(px + 0.5f);
+		// Computing alpha for y and x
+		float alphay = py - (float)iy;
+		float alphax = (px + 0.5f) - (float)ix;
+		// Assigning values and weights
+		for (int y = 0; y <= 1; y++) {
+			for (int x = 0; x <= 1; x++) {
+				if ((ix + x) <= mX && 0 <= (iy + y) && (iy + y) < mY) {
+					float w = (x > 0 ? alphax : 1.f - alphax)*(y > 0 ? alphay : 1.f - alphay);
+					U(ix + x, iy + y) += w*particles[i].uX;
+					uAmts[(ix + x) + (mX + 1)*(iy + y)] += w;
+				}
+			}
+		}
+
+		// V
+		// affects values: x=floor(px) and floor(px)+1
+		//                 y=floor(py+1/2)-1/2 and floor(py+1/2)+1/2, with same 1/2 index bias as above.
+		ix = floorf(px);
+		iy = floorf(py + 0.5f);
+		// Computing alpha for x and y
+		alphax = px - (float)ix;
+		alphay = (py + 0.5f) - (float)iy;
+		// Assigning values and weights
+		for (int y = 0; y <= 1; y++) {
+			for (int x = 0; x <= 1; x++) {
+				if ((iy + y) <= mY && 0 <= (ix + x) && (ix + x) < mX) {
+					float w = (x > 0 ? alphax : 1.f - alphax)*(y > 0 ? alphay : 1.f - alphay);
+					V(ix + x, iy + y) += w*particles[i].uY;
+					vAmts[(ix + x) + mX*(iy + y)] += w;
+				}
+			}
+		}
+	}
+
+	// Divide U and V by uAmts and vAmts
+	float div_eps = std::numeric_limits<float>::denorm_min();
+	for (int y = 0; y < mY; y++) {
+		for (int x = 0; x < mX+1; x++) {
+			U(x, y) = U(x, y) / (div_eps+uAmts[x + (mX + 1)*y]);
+		}
+	}
+	for (int y = 0; y < mY+1; y++) {
+		for (int x = 0; x < mX; x++) {
+			V(x, y) = V(x, y) / (div_eps+vAmts[x + mX*y]);
+		}
+	}
+
+	delete[] uAmts;
+	delete[] vAmts;
 }
 
 void FluidSim::AddBodyForces(float dt) {
@@ -141,31 +240,6 @@ void FluidSim::AddBodyForces(float dt) {
 		m_MV[i] += gdT;
 	}
 }
-
-/*void odPrintDivergence(double* ar, int xSize, int ySize) {
-	odprintf("{");
-	for (int y = 0; y < ySize; y++) {
-		odprintf("{");
-		for (int x = 0; x < xSize; x++) {
-			float div = U(x + 1, y) + V(x, y + 1) - U(x, y) - V(x, y);
-			if (abs(div) > abs(maxdiv)) {
-				maxdiv = div;
-				maxdivX = x;
-				maxdivY = y;
-			}
-			odprintf("%f", div);
-			if (x != xSize - 1) {
-				odprintf(",");
-			}
-		}
-		odprintf("}");
-		if (y != ySize - 1) {
-			odprintf(",\n");
-		}
-	}
-	odprintf("}");
-	odprintf("Maximum divergence of %f is at (x,y)=(%i, %i)", maxdiv, maxdivX, maxdivY);
-}*/
 
 void odPrintArray(double* ar, int xSize, int ySize) {
 	odprintf("{");
@@ -234,9 +308,6 @@ void FluidSim::Project(float dt) {
 	// II. Gauss-Seidel iteration.
 	// For writing simplicity, let's start by writing everything inline.
 
-	double omega = 0.0;
-	double lastL2 = 0.0;
-
 	// Based off of measurements from this code, we generally want to take
 	// omega to be almost exactly 2-3.22133/mX, based on iterating
 	// on 16x16, 32x32, and 64x64 grids for 30, 30, and 60 iterations, respectively.
@@ -244,56 +315,18 @@ void FluidSim::Project(float dt) {
 	// for boundary conditions to reach the edges of the grid, yet it still manages an
 	// eventual convergence rate of 1/0.85!)
 
-	int numIterations = 60;
-	while (omega < 1.99999) {
-		for (int y = 0; y < mY; y++) {
-			for (int x = 0; x < mX; x++) {
-				p[x + mX*y] = 0;
-			}
-		}
+	double omega = 2 - 3.22133 / mX;
 
-		for (int iter = 0; iter < numIterations; iter++) {
-			for (int stage = 0; stage <= 1; stage++) {
-				for (int y = 0; y < mY; y++) {
-					for (int x = 0; x < mX; x++) {
-						// Checkerboard iteration
-						if (((x + y) % 2) != stage) continue;
+	int numIterations = 120;
 
-						// Gauss-Seidel update p[x,y].
-						double numNeighbors = 0;
-						double neighborMinusSum = 0;
-
-						if (x != 0) {
-							numNeighbors++;
-							neighborMinusSum -= p[(x - 1) + mX*(y)];
-						}
-						if (x != mX - 1) {
-							numNeighbors++;
-							neighborMinusSum -= p[(x + 1) + mX*(y)];
-						}
-						if (y != 0) {
-							numNeighbors++;
-							neighborMinusSum -= p[x + mX*(y - 1)];
-						}
-						if (y != mY - 1) {
-							numNeighbors++;
-							neighborMinusSum -= p[x + mX*(y + 1)];
-						}
-
-						// Get ready for it... here it comes!
-						// p[x + mX*y] = (b[x + mX*y] - neighborMinusSum) / numNeighbors;
-
-						// Woah, it's successive over-relaxation!
-						p[x + mX*y] = (1 - omega)*p[x + mX*y] + omega*(b[x + mX*y] - neighborMinusSum) / numNeighbors;
-					}
-				}
-			}
-
-			//odPrintArray(p,mX,mY);
-			// Measure norm
-			double l2Sq = 0;
+	for (int iter = 0; iter < numIterations; iter++) {
+		for (int stage = 0; stage <= 1; stage++) {
 			for (int y = 0; y < mY; y++) {
 				for (int x = 0; x < mX; x++) {
+					// Checkerboard iteration
+					if (((x + y) % 2) != stage) continue;
+
+					// Gauss-Seidel update p[x,y].
 					double numNeighbors = 0;
 					double neighborMinusSum = 0;
 
@@ -314,21 +347,84 @@ void FluidSim::Project(float dt) {
 						neighborMinusSum -= p[x + mX*(y + 1)];
 					}
 
-					l2Sq += pow(numNeighbors*p[x + mX*y] + neighborMinusSum - b[x + mX*y], 2.0);
+					// Get ready for it... here it comes!
+					// p[x + mX*y] = (b[x + mX*y] - neighborMinusSum) / numNeighbors;
+
+					// Woah, it's successive over-relaxation!
+					p[x + mX*y] = (1 - omega)*p[x + mX*y] + omega*(b[x + mX*y] - neighborMinusSum) / numNeighbors;
 				}
 			}
-
-			/*if (omega == 1.00) {
-				odPrintArray(p, mX, mY);
-			}*/
-
-			if (iter == numIterations - 1)
-				odprintf("{%lf, %lf, %lf},", omega, sqrt(l2Sq / lastL2), sqrt(l2Sq));
-			lastL2 = l2Sq;
 		}
-		omega += 0.001;
 	}
-	//odPrintArray(b, mX, mY);
+	
+	// Compute and print L2 norm
+	// Measure norm
+	double l2Sq = 0;
+	for (int y = 0; y < mY; y++) {
+		for (int x = 0; x < mX; x++) {
+			double numNeighbors = 0;
+			double neighborMinusSum = 0;
+
+			if (x != 0) {
+				numNeighbors++;
+				neighborMinusSum -= p[(x - 1) + mX*(y)];
+			}
+			if (x != mX - 1) {
+				numNeighbors++;
+				neighborMinusSum -= p[(x + 1) + mX*(y)];
+			}
+			if (y != 0) {
+				numNeighbors++;
+				neighborMinusSum -= p[x + mX*(y - 1)];
+			}
+			if (y != mY - 1) {
+				numNeighbors++;
+				neighborMinusSum -= p[x + mX*(y + 1)];
+			}
+
+			l2Sq += pow(numNeighbors*p[x + mX*y] + neighborMinusSum - b[x + mX*y], 2.0);
+		}
+	}
+
+	odprintf("After %i iterations, the L2 norm was %lf.", numIterations, l2Sq);
+
+	if (isnan(l2Sq)) {
+		odprintf("And that's a problem!");
+	}
+
+	// Remove pressure from velocities
+	// Pressure gradient update:
+	// u_{i+1/2,j,k}^{n+1} = u_{i+1/2,j,k}-dt(p_{i+1,j,k}-p_{i,j,k})/(rho dx)
+
+	// Edges
+	for (int x = 0; x < mX; x++) {
+		V(x, 0) = 0;
+		V(x, mY) = 0;
+	}
+
+	for (int y = 0; y < mY; y++) {
+		U(0, y) = 0;
+		U(mX, y) = 0;
+	}
+
+	// Interior
+	scale = dt / (m_rho*dx);
+	// U
+	for (int y = 0; y < mY; y++) {
+		for (int x = 0; x < mX-1; x++){
+			U(x + 1, y) = U(x + 1, y) - scale*(p[(x + 1) + mX*y] - p[x + mX*y]);
+		}
+	}
+	// V
+	for (int y = 0; y < mY - 1; y++) {
+		for (int x = 0; x < mX; x++) {
+			V(x, y + 1) = V(x, y + 1) - scale*(p[x + mX*(y + 1)] - p[x + mX*y]);
+		}
+	}
+	// end (modifies internal state).
+
+	delete[] b;
+	delete[] p;
 }
 
 float peaks(float x, float y) {
