@@ -47,6 +47,7 @@ public:
 private:
 	void Advect(std::vector<Particle> &particles, float dt);
 	void TransferParticlesToGrid(std::vector<Particle> &particles);
+	void ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySize);
 	void AddBodyForces(float dt);
 	void Project(float dt);
 	void PrintDivergence();

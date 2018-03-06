@@ -9,6 +9,7 @@
 #include "Simulation.h"
 #include "odprintf.h"
 #include <limits>
+#include <queue> // For serial extrapolation - see ExtrapolateValues(4).
 
 FluidSim::FluidSim(int xSize, int ySize, float CellsPerMeter)
 	:mX(xSize), mY(ySize), m_CellsPerMeter(CellsPerMeter),
@@ -117,6 +118,8 @@ void FluidSim::Simulate(float dt) {
 	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
 	float alpha = MathHelper::Clamp(6 * dt*m_nu*m_CellsPerMeter*m_CellsPerMeter, 0.0f, 1.0f);
 	alpha = 0.3f; // can only go down to 0.3 on a 64x64 grid for now (due to lack of velocity interpolation code?)
+	// Well, I implemented the velocity interpolation code, and it's still breaking.
+	// Time to check our results against a working implementation!
 	//alpha = 1.0f;
 	//alpha = 0.0f;// 0.95f;
 				 // Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
@@ -312,10 +315,95 @@ void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
 	/*if (minAmt < 0.01f) {
 		odprintf("min amt was %f!", minAmt);
 	}*/
-	
+
+	// EXTRAPOLATE UNKNOWN VELOCITIES
+	float zero_thresh = 0.01f;
+	bool* uValid = new bool[(mX + 1)*mY];
+	bool* vValid = new bool[mX*(mY + 1)];
+	for (int i = 0; i < (mX + 1)*mY; i++)
+		uValid[i] = (uAmts[i] > zero_thresh);
+	for (int i = 0; i < mX*(mY + 1); i++)
+		vValid[i] = (vAmts[i] > zero_thresh);
+
+	ExtrapolateValues(m_MU, uValid, mX + 1, mY);
+	ExtrapolateValues(m_MV, vValid, mX, mY + 1);
+
+	delete[] uValid;
+	delete[] vValid;
 
 	delete[] uAmts;
 	delete[] vAmts;
+}
+
+void FluidSim::ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySize) {
+	// Simple breadth-first-search-based extrapolation routine based off of Bridson, end of Chapter 4.
+	// Since this is BFS, it's not immediately amenable to parallel processing, other than in the usual way
+	// which requires lots of synchronization.
+	// However, when we're parallelizing this routine, we could potentially try the following approach:
+	// 1. Do a fast scan over the grid to construct the Manhattan distance from each grid point to the closest
+	//      valid grid point.
+	// 2. Do some sort of hierarchical bucket sort to partition the cells into sets based off of their
+	//      distances from step (1).
+	// 3. Extrapolate the values for the grid by extrapolating the values at distance i in parallel
+	
+	// Note, however, that this won't produce the same results as the following serial algorithm, so we'll have
+	// to modify this later on. The priority here is getting the code to work.
+
+	// Precondition: At least one value of validAr is true.
+
+	// Adjacency directions
+	const int offsets[8] = { 1,0, -1,0, 0,1, 0,-1 };
+	const int numDirs = 4;
+	
+	// BFS initialization
+	std::queue<int> q;
+	for (int y = 0; y < ySize; y++) {
+		for (int x = 0; x < xSize; x++) {
+			if (!validAr[x + xSize*y]) {
+				// are any neighbors valid?
+				for (int d = 0; d < numDirs; d++) {
+					int nx = x+offsets[2 * d];
+					int ny = y+offsets[2 * d + 1];
+					if (0 <= nx && nx < xSize && 0 <= ny && ny < ySize && validAr[nx + xSize*ny]) {
+						q.push(x);
+						q.push(y);
+						break;
+					}
+				}
+			}
+		}
+	}
+
+	// BFS iteration
+	while (q.size() > 0) {
+		int x = q.front();  q.pop();
+		int y = q.front();  q.pop();
+		// already processed?
+		if (validAr[x + xSize*y]) {
+			break;
+		}
+		// Interpolate value and add additional values
+		float numNeighbors = 0.0f;
+		float sumNeighbors = 0.0f;
+		for (int d = 0; d < numDirs; d++) {
+			int nx = x + offsets[2 * d];
+			int ny = y + offsets[2 * d + 1];
+			if (0 <= nx && nx < xSize && 0 <= ny && ny < ySize) {
+				int i = nx + xSize*ny;
+				if (validAr[i]) {
+					sumNeighbors += srcAr[i]; // Interpolate value
+					numNeighbors += 1.0f;
+				} else {
+					q.push(nx); // Add additional values
+					q.push(ny);
+				}
+			}
+		}
+		assert(numNeighbors > 0.0f);
+		srcAr[x + xSize*y] = sumNeighbors / numNeighbors;
+		validAr[x + xSize*y] = true;
+	}
+	// and that's it!
 }
 
 void FluidSim::AddBodyForces(float dt) {
