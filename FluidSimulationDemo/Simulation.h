@@ -46,8 +46,10 @@ public:
 	void Simulate(float dt);
 private:
 	void Advect(std::vector<Particle> &particles, float dt);
+	void TransferParticlesToGrid(std::vector<Particle> &particles);
 	void AddBodyForces(float dt);
 	void Project(float dt);
+	void PrintDivergence();
 private:
 	//******************************************************
 	// 2D METHODS

@@ -54,22 +54,19 @@ void FluidSim::ResetSimulation() {
 			float rX = px / m_CellsPerMeter; //real-world X
 			float rY = py / m_CellsPerMeter;
 			float d = 0.5f / m_CellsPerMeter;
-			m_particles.emplace_back(rX, rY, InterpolateMACCell(mX*rX,mY*rY));
-			m_particles.emplace_back(rX + d, rY, InterpolateMACCell(mX*(rX+d), mY*rY));
-			m_particles.emplace_back(rX, rY + d, InterpolateMACCell(mX*rX, mY*(rY+d)));
-			m_particles.emplace_back(rX + d, rY + d, InterpolateMACCell(mX*(rX+d), mY*(rY+d)));
+			m_particles.emplace_back(rX, rY, vectorCurl(rX, rY));
+			m_particles.emplace_back(rX + d, rY, vectorCurl((rX + d), rY));
+			m_particles.emplace_back(rX, rY + d, vectorCurl(rX, rY + d));
+			m_particles.emplace_back(rX + d, rY + d, vectorCurl((rX + d), (rY + d)));
 		}
 	}
 
 	// TEST
 	Project(1.0);
 
-	// Print divergence
-	PrintDivergence();
-}
-
-void FluidSim::PrintDivergence() {
 	bool pAr = false;
+
+	// Print divergence
 	float maxdiv = 0;
 	int maxdivX = -1;
 	int maxdivY = -1;
@@ -103,76 +100,9 @@ void FluidSim::Simulate(float dt) {
 
 	Advect(m_particles, dt);
 
-	// Moving complexity here for the moment, this should be refactored out
-	// Store the old grid (...this actually does seem to be the best way)
-	float* m_oldU = new float[(mX + 1)*mY];
-	float* m_oldV = new float[mX*(mY + 1)];
-	for (int i = 0; i < (mX + 1)*mY; i++)
-		m_oldU[i] = m_MU[i];
-	for (int i = 0; i < mX*(mY + 1); i++) {
-		m_oldV[i] = m_MV[i];
-	}
-
-	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
-	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
-	float alpha = MathHelper::Clamp(6 * dt*m_nu*m_CellsPerMeter*m_CellsPerMeter, 0.0f, 1.0f);
-	alpha = 0.3f; // can only go down to 0.3 on a 64x64 grid for now (due to lack of velocity interpolation code?)
-	//alpha = 1.0f;
-	//alpha = 0.0f;// 0.95f;
-				 // Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
-
-	TransferParticlesToGrid(m_particles);
-
-	// let's uh
-	// just patch holes for now
-	/*for (int i = 0; i < (mX + 1)*mY; i++) {
-		if (m_MU[i] == 0.0f) {
-			m_MU[i] = m_oldU[i];
-		}
-	}
-	for (int i = 0; i < mX*(mY+1); i++) {
-		if (m_MV[i] == 0.0f) {
-			m_MV[i] = m_oldV[i];
-		}
-	}*/
-	// That doesn't work!
-
 	// AddBodyForces(dt);
 
 	Project(dt);
-
-	PrintDivergence();
-
-	//---------------------------------------
-	// FINISH SETTING NEW PARTICLE VELOCITIES
-	//---------------------------------------
-	// Compute difference between new grid and old grid
-	// At the end, we want to have
-	// u^new = alpha*newgrid + (1-alpha)*u_old + (1-alpha)*(newgrid-oldgrid)
-	//       = (1-alpha)*u_old + newgrid-(1-alpha)*oldgrid
-	for (int i = 0; i < (mX + 1)*mY; i++)
-		m_oldU[i] = m_MU[i]-(1.0f-alpha)*m_oldU[i];
-	for (int i = 0; i < mX*(mY + 1); i++) {
-		m_oldV[i] = m_MV[i]-(1.0f-alpha)*m_oldV[i];
-	}
-	// Allow for interpolation via tricky pointer hacking
-	std::swap(m_oldU, m_MU);
-	std::swap(m_oldV, m_MV);
-	int len = m_particles.size();
-	for (int i = 0; i < len; i++) {
-		XMFLOAT2 interpDiff = InterpolateMACCell(mX*m_particles[i].X, mY*m_particles[i].Y);
-		if (fabsf(interpDiff.x) > 1000 || fabsf(interpDiff.y) > 1000) {
-			odprintf("Hey, what's going on here?");
-		}
-		m_particles[i].uX = (1.0f-alpha)*m_particles[i].uX + interpDiff.x;
-		m_particles[i].uY = (1.0f-alpha)*m_particles[i].uY + interpDiff.y;
-	}
-	// ...and swap back
-	std::swap(m_oldU, m_MU);
-	std::swap(m_oldV, m_MV);
-	// ...and clean up :(
-	delete[] m_oldU;
-	delete[] m_oldV;
 }
 
 void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
@@ -212,16 +142,44 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 			particles[i].Y += dt*vY;
 		}
 	}
-}
 
-void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
 	// VELOCITY UPDATES
 	// Implements Bridson's equation 7.2 with a trilinear hat kernel (pg. 112) for transferring particle velocities
 	// to the grid, along with a hybrid FLIP/PIC update.
+	// We use the linearity of interpolation over grids to express this in terms of the old grid and the new grid,
+	// instead of storing the difference between the two grids.
+
+	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
+	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118), we want to set
+	// u^new = (1-alpha)*u^old + alpha*interp(new) + (1-alpha)*interp(new-old)
+	//       = (1-alpha)*u^old + interp(new) - (1-alpha)*interp(old)
+	//       = (1-alpha)(u^old-interp(old)) + interp(new)
+	// We can do this just by iterating through the particles before and after the transfer of particle velocities
+	// to the grid.
+
+	// oh no
+	// actually we can't
+	// because by updating the particle velocities here and then transferring them to the grid, we alter
+	// what we were going to transfer.
+
+	// ok, do this instead (although it may actually be longer :| )
+	float* oldParticleUs = new float[len];
+	float* oldParticleVs = new float[len];
+
+	// Set particle velocities to (1-alpha)(u^old-interp(old))
+	float alpha = MathHelper::Clamp(6 * dt*m_nu*m_CellsPerMeter*m_CellsPerMeter, 0.0f, 1.0f);
+	//alpha = 1.0f;
+	// Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
+
+	for (int i = 0; i < len; i++) {
+		XMFLOAT2 interpOld = InterpolateMACCell(mX*particles[i].X, mY*particles[i].Y);
+		oldParticleUs[i] = (1.0f - alpha)*(particles[i].uX - interpOld.x);
+		oldParticleVs[i] = (1.0f - alpha)*(particles[i].uY - interpOld.y);
+	}
+
 	//-------------------------------------
 	// TRANSFER PARTICLE VELOCITIES TO GRID
 	//-------------------------------------
-	int len = particles.size();
 	// Accumulates weights
 	float* uAmts = new float[(mX + 1)*mY](); // sets to 0, hopefully
 	float* vAmts = new float[mX*(mY + 1)]();
@@ -289,33 +247,33 @@ void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
 		}
 	}
 
-	float minAmt = 100.0f;
-
 	// Divide U and V by uAmts and vAmts
 	float div_eps = std::numeric_limits<float>::denorm_min();
-	//div_eps = 1.3f;
 	for (int y = 0; y < mY; y++) {
-		for (int x = 0; x < mX + 1; x++) {
-			U(x, y) = (U(x, y) / (div_eps + uAmts[x + (mX + 1)*y]));
-			if (uAmts[x + (mX + 1)*y] < minAmt)
-				minAmt = uAmts[x + (mX + 1)*y];
+		for (int x = 0; x < mX+1; x++) {
+			U(x, y) = U(x, y) / (div_eps+uAmts[x + (mX + 1)*y]);
 		}
 	}
-	for (int y = 0; y < mY + 1; y++) {
+	for (int y = 0; y < mY+1; y++) {
 		for (int x = 0; x < mX; x++) {
-			V(x, y) = (V(x, y) / (div_eps + vAmts[x + mX*y]));
-			if (vAmts[x + mX*y] < minAmt)
-				minAmt = vAmts[x + mX*y];
+			V(x, y) = V(x, y) / (div_eps+vAmts[x + mX*y]);
 		}
 	}
-
-	/*if (minAmt < 0.01f) {
-		odprintf("min amt was %f!", minAmt);
-	}*/
-	
 
 	delete[] uAmts;
 	delete[] vAmts;
+
+	//---------------------------------------
+	// FINISH SETTING NEW PARTICLE VELOCITIES
+	//---------------------------------------
+	for (int i = 0; i < len; i++) {
+		XMFLOAT2 interpNew = InterpolateMACCell(mX*particles[i].X, mY*particles[i].Y);
+		particles[i].uX = oldParticleUs[i] + interpNew.x;
+		particles[i].uY = oldParticleVs[i] + interpNew.y;
+	}
+
+	delete[] oldParticleUs;
+	delete[] oldParticleVs; // this allocation is bad, I don't really like it
 }
 
 void FluidSim::AddBodyForces(float dt) {
@@ -548,5 +506,5 @@ XMFLOAT2 vectorPotential(float x, float y) {
 // ...of course, we actually decided to just make this really ad-hoc just now, so ignore all the above.
 XMFLOAT2 vectorCurl(float x, float y) {
 	XMFLOAT2 vf = vectorFunction(6.0f*x-3.0f, 6.0f*y-3.0f);
-	return XMFLOAT2(0.02f*vf.y, -0.02f*vf.x); // should hypothetically circle around peaks
+	return XMFLOAT2(0.1f*vf.y, -0.1f*vf.x); // should hypothetically circle around peaks
 }
