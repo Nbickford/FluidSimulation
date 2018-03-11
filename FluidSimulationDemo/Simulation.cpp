@@ -10,6 +10,7 @@
 #include "odprintf.h"
 #include <limits>
 #include <queue> // For serial extrapolation - see ExtrapolateValues(4).
+#include <random>
 
 #include "debugroutines.h"
 
@@ -21,6 +22,9 @@ FluidSim::FluidSim(int xSize, int ySize, float CellsPerMeter)
 	// Set up MAC velocity grids and initialize velocities
 	m_MU = new float[(xSize + 1)*ySize];
 	m_MV = new float[xSize*(ySize + 1)];
+	
+	// Level sets and auxiliary fields
+	m_Phi = new float[xSize*ySize];
 
 	ResetSimulation();
 }
@@ -29,6 +33,7 @@ FluidSim::~FluidSim() {
 	m_particles.clear();
 	delete[] m_MU;
 	delete[] m_MV;
+	delete[] m_Phi;
 }
 
 void FluidSim::ResetSimulation() {
@@ -49,20 +54,26 @@ void FluidSim::ResetSimulation() {
 		}
 	}
 
+	std::default_random_engine generator(0);
+	std::uniform_real_distribution<float> distribution(-0.25f, 0.25f);
+
 	// Create a uniform distribution of particles
 	// and set their velocities
 	m_particles.clear();
 	for (int y = 1; y < mY-1; y++) {
-		for (int x = 1; x < mX-1; x++) {
+		for (int x = 16; x < mX-1; x++) {
 			float px = x - 0.25f;
 			float py = y - 0.25f;
 			float rX = px / m_CellsPerMeter; //real-world X
 			float rY = py / m_CellsPerMeter;
 			float d = 0.5f / m_CellsPerMeter;
-			m_particles.emplace_back(rX, rY, InterpolateMACCell(mX*rX,mY*rY));
-			m_particles.emplace_back(rX + d, rY, InterpolateMACCell(mX*(rX+d), mY*rY));
-			m_particles.emplace_back(rX, rY + d, InterpolateMACCell(mX*rX, mY*(rY+d)));
-			m_particles.emplace_back(rX + d, rY + d, InterpolateMACCell(mX*(rX+d), mY*(rY+d)));
+			for (int u = 0; u <= 1; u++) {
+				for (int v = 0; v <= 1; v++) {
+					float m1 = rX + u*d + distribution(generator)/m_CellsPerMeter;
+					float m2 = rY + v*d + distribution(generator)/m_CellsPerMeter;
+					m_particles.emplace_back(m1, m2, InterpolateMACCell(mX*m1, mY*m2));
+				}
+			}
 		}
 	}
 
@@ -140,13 +151,14 @@ void FluidSim::Simulate(float dt) {
 	// 2. Particle reseeding.
 	// 3. (Experimental) Fractional volumes of air depending on level sets.
 	// 4. Just clamp particle velocities/positions :/
-	alpha = 0.14f; // On a 32x32 grid with a dt of 0.01, we can now go down to 0.14.
+	alpha = 1.00f; // On a 32x32 grid with a dt of 0.01, we can now go down to 0.14. Or we could. Now air messes it up?
 				 // Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
+	ComputeLevelSet(m_particles);
 
 	TransferParticlesToGrid(m_particles);
 
 	// Add gravity
-	// AddBodyForces(dt);
+	AddBodyForces(dt);
 
 	Project(dt);
 
@@ -226,6 +238,87 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 			particles[i].Y += dt*vY;
 		}
 	}
+}
+
+void FluidSim::ComputeLevelSet(std::vector<Particle> &particles) {
+	// Uses a breadth-first-search method to compute the level set of the particles.
+	// We could also use fast marching here!
+
+	// For now, we'll just use a simple sphere kernel, which should be OK for the moment.
+	
+	// Holds the index of the closest particle to each cell.
+	int* closestParticles = new int[mX*mY];
+	// Initialize everything to -1, indicating unknown.
+	// Because of this array, we don't need to initialize m_Phi!
+	int gridSize = mX*mY;
+	for (int i = 0; i < gridSize; i++) {
+		closestParticles[i] = -1;
+	}
+
+	// Offsets and directions (this suffices)
+	const int offsets[8] = {1,0, 0,1, 0,-1, -1,0};
+	const int numDirs = 4;
+
+	// Iterate through particles to initialize BFS.
+	// Note: since we'll always have less than 2^16+1 cells on a side and all
+	// integers up to 2^16 are exactly representable as floats, using (int)roundf()
+	// in this context is just fine.
+	std::queue<int> q;
+	int len = (int)particles.size();
+	for (int i = 0; i < len; i++) {
+		// Compute nearest grid index
+		float px = particles[i].X*m_CellsPerMeter;
+		float py = particles[i].Y*m_CellsPerMeter;
+		int cellX = (int)roundf(px);
+		int cellY = (int)roundf(py);
+		if (cellX<0 || cellX>=mX || cellY<0 || cellY>=mY) continue;
+		// Compute kernel
+		float k = sqrtf((px - (float)cellX)*(px - (float)cellX)
+			          + (py - (float)cellY)*(py - (float)cellY)) - m_pRadius;
+		
+		bool process = false;
+		if (closestParticles[cellX + mX*cellY] < 0) { // if distance unknown (we'll set it)
+			process = true;
+			q.push(cellX);
+			q.push(cellY);
+		}
+		if (process || (m_Phi[cellX + mX*cellY] > k)) {
+			closestParticles[cellX + mX*cellY] = i;
+			m_Phi[cellX + mX*cellY] = k;
+		}
+	}
+	// BFS, slightly backwards (spread instead of gather)
+	while (q.size() > 0) {
+		int x = q.front(); q.pop();
+		int y = q.front(); q.pop();
+		// This cell's closest particle and distance is known:
+		int cpi = closestParticles[x + mX*y];
+		float closestX = particles[cpi].X*m_CellsPerMeter;
+		float closestY = particles[cpi].Y*m_CellsPerMeter;
+		// Iterate over neighbors trying to improve distance;
+		// if neighbor has not been listed yet, add it to the list
+		for (int d = 0; d < numDirs; d++) {
+			int nx = x + offsets[2 * d];
+			int ny = y + offsets[2 * d + 1];
+			if (0 <= nx && nx < mX && 0 <= ny && ny < mY) {
+				float k = sqrtf((closestX - nx)*(closestX - nx)
+					          + (closestY - ny)*(closestY - ny)) - m_pRadius;
+
+				if (closestParticles[nx + mX*ny] < 0) {
+					closestParticles[nx + mX*ny] = cpi;
+					Phi(nx, ny) = k;
+					q.push(nx);
+					q.push(ny);
+				} else if (Phi(nx, ny) > k) {
+					Phi(nx, ny) = k;
+					closestParticles[nx + mX*ny] = cpi;
+				}
+			}
+		}
+	}
+
+	// and that's it! Clear temporary array.
+	delete[] closestParticles;
 }
 
 void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
@@ -465,7 +558,7 @@ void FluidSim::Project(float dt) {
 	// (see Bridson's lecture notes or the 2nd ed. of the book, pg. 76 for a derivation:)
 	
 	// - For each bordering solid cell, reduce the coefficient 4 by 1 and remove the reference
-	// to that p. Also, use u_solid inside the solid matierial (which in this case we take to be 0)
+	// to that p. Also, use u_solid inside the solid material (which in this case we take to be 0)
 	//
 	// - For each bordering air cell, just remove the reference to that p.
 
@@ -524,21 +617,34 @@ void FluidSim::Project(float dt) {
 					double numNeighbors = 0;
 					double neighborMinusSum = 0;
 
+					// If this cell is air, then there's no equation for this cell - 
+					// ((D+R)x) = 0
+					if (Phi(x, y) > 0.0f) continue;
+
 					if (x != 0) {
 						numNeighbors++;
-						neighborMinusSum -= p[(x - 1) + mX*(y)];
+						// not air?
+						if (Phi(x - 1, y) < 0.0f) {
+							neighborMinusSum -= p[(x - 1) + mX*(y)];
+						}
 					}
 					if (x != mX - 1) {
 						numNeighbors++;
-						neighborMinusSum -= p[(x + 1) + mX*(y)];
+						if (Phi(x + 1, y) < 0.0f) {
+							neighborMinusSum -= p[(x + 1) + mX*(y)];
+						}
 					}
 					if (y != 0) {
 						numNeighbors++;
-						neighborMinusSum -= p[x + mX*(y - 1)];
+						if (Phi(x, y - 1) < 0.0f){
+							neighborMinusSum -= p[x + mX*(y - 1)];
+						}
 					}
 					if (y != mY - 1) {
 						numNeighbors++;
-						neighborMinusSum -= p[x + mX*(y + 1)];
+						if (Phi(x, y + 1) < 0.0f) {
+							neighborMinusSum -= p[x + mX*(y + 1)];
+						}
 					}
 
 					// Get ready for it... here it comes!

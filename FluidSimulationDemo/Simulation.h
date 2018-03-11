@@ -50,6 +50,7 @@ public:
 	void Simulate(float dt);
 private:
 	void Advect(std::vector<Particle> &particles, float dt);
+	void ComputeLevelSet(std::vector<Particle> &particles);
 	void TransferParticlesToGrid(std::vector<Particle> &particles);
 	void ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySize);
 	void AddBodyForces(float dt);
@@ -66,6 +67,9 @@ private:
 
 	// v(i,j,k) = v_{i,j-1/2,k} (Returns a reference)
 	float& V(int i, int j) { return m_MV[i + mX*j]; }
+
+	// phi(i,j,k) = phi_{i,j,k} (Returns a reference)
+	float& Phi(int i, int j) { return m_Phi[i + mX*j]; };
 
 	// NOTE: i AND j ARE ARRAY INDICES
 	XMFLOAT2 InterpolateMACCell(float i, float j) {
@@ -211,6 +215,9 @@ private:
 
 	// Kinematic viscosity of water (in m^2/s)
 	float m_nu = 8.90f*1e-4f / 1000.0f; //(=dynamic viscosity/density, both of which are constant) 
+
+	// Particle radius
+	float m_pRadius = 2*0.282f; // 2/(2*sqrt(pi)); completely ad-hoc at the moment
 	
 	// MAC velocity grids.
 	// These are all stored in row-major order, so that X is the least significant part.
@@ -220,6 +227,10 @@ private:
 	float* m_MV;
 	// Z component of velocity on an mX*mY*(mZ+1) grid.
 	// float* m_MW;
+
+	// Level set (sampled at point centers, size mX*mY)
+	// Note: = DISTANCE IN GRID CELLS
+	float* m_Phi;
 	
 public: // For visualization, for the moment - we could of course execute rendering commands from here though
 	// List of particles
