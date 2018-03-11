@@ -171,6 +171,7 @@
     <ClInclude Include="..\Libraries\DirectXTK\LoaderHelpers.h" />
     <ClInclude Include="..\Libraries\DirectXTK\pch.h" />
     <ClInclude Include="..\Libraries\DirectXTK\PlatformHelpers.h" />
+    <ClInclude Include="debugroutines.h" />
     <ClInclude Include="newcompiler.h" />
     <ClInclude Include="Simulation.h" />
   </ItemGroup>

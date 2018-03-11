@@ -29,6 +29,10 @@ struct Particle {
 	Particle(float px, float py, XMFLOAT2 vel)
 	:X(px), Y(py), uX(vel.x), uY(vel.y){
 	}
+
+	Particle(float px, float py, float ux, float uy)
+		:X(px), Y(py), uX(ux), uY(uy) {
+	}
 };
 
 // Represents the current state of a fluid simulation.
@@ -63,6 +67,7 @@ private:
 	// v(i,j,k) = v_{i,j-1/2,k} (Returns a reference)
 	float& V(int i, int j) { return m_MV[i + mX*j]; }
 
+	// NOTE: i AND j ARE ARRAY INDICES
 	XMFLOAT2 InterpolateMACCell(float i, float j) {
 		// Interpolating between velocities on a MAC grid...gets a bit tricky.
 		// It's easiest to follow this if you draw a MAC grid in 2D and follow it out.

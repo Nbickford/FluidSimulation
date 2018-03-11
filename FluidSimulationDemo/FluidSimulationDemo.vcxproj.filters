@@ -104,6 +104,9 @@
     <ClInclude Include="Simulation.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="debugroutines.h">
+      <Filter>Common</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="FX\color.fx">

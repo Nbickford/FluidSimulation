@@ -45,3 +45,8 @@
 # RenderDoc Capture files (NB)
 *.cap
 /FluidSimulationDemo.VC.VC.opendb
+/FluidSimulationDemo/dbgV.txt
+/FluidSimulationDemo/dbgU.txt
+/FluidSimulationDemo/dbgParticles.txt
+/FluidSimulationDemo/dbgInterpV.txt
+/FluidSimulationDemo/dbgInterpU.txt

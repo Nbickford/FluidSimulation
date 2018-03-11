@@ -11,6 +11,10 @@
 #include <limits>
 #include <queue> // For serial extrapolation - see ExtrapolateValues(4).
 
+#include "debugroutines.h"
+
+int frame = 0;
+
 FluidSim::FluidSim(int xSize, int ySize, float CellsPerMeter)
 	:mX(xSize), mY(ySize), m_CellsPerMeter(CellsPerMeter),
 	m_particles() {
@@ -48,10 +52,10 @@ void FluidSim::ResetSimulation() {
 	// Create a uniform distribution of particles
 	// and set their velocities
 	m_particles.clear();
-	for (int y = 0; y < mY; y++) {
-		for (int x = 0; x < mX; x++) {
-			float px = x + 0.25f;
-			float py = y + 0.25f;
+	for (int y = 1; y < mY-1; y++) {
+		for (int x = 1; x < mX-1; x++) {
+			float px = x - 0.25f;
+			float py = y - 0.25f;
 			float rX = px / m_CellsPerMeter; //real-world X
 			float rY = py / m_CellsPerMeter;
 			float d = 0.5f / m_CellsPerMeter;
@@ -62,7 +66,7 @@ void FluidSim::ResetSimulation() {
 		}
 	}
 
-	// TEST
+	// Remove initial divergence
 	Project(1.0);
 
 	// Print divergence
@@ -102,6 +106,12 @@ void FluidSim::Simulate(float dt) {
 	// Clamp maximum dt
 	dt = MathHelper::Clamp(dt, 0.0f, 1.0f/15.0f);
 
+	// Iterate frame counter
+	frame++;
+	
+	// QQQ DEBUG: Set dt to 0.01 to match simple.cpp
+	dt = 0.01f;
+
 	Advect(m_particles, dt);
 
 	// Moving complexity here for the moment, this should be refactored out
@@ -117,29 +127,25 @@ void FluidSim::Simulate(float dt) {
 	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
 	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
 	float alpha = MathHelper::Clamp(6 * dt*m_nu*m_CellsPerMeter*m_CellsPerMeter, 0.0f, 1.0f);
-	alpha = 0.3f; // can only go down to 0.3 on a 64x64 grid for now (due to lack of velocity interpolation code?)
+	//alpha = 0.3f; // can only go down to 0.3 on a 64x64 grid for now (due to lack of velocity interpolation code?)
 	// Well, I implemented the velocity interpolation code, and it's still breaking.
 	// Time to check our results against a working implementation!
-	//alpha = 1.0f;
-	//alpha = 0.0f;// 0.95f;
+	// Turns out that implementation also breaks on this, but in a different way.
+	// It now looks like the problem's that the projection routine changes its results dramatically depending
+	// on which cells are classified as air - or in this case, which cells have extrapolated results (which of course
+	// will conflict with the boundary conditions).
+	// There are three things that might help fix this:
+	// 1. Implementing the case of cells containing air in the fluid solver. (If we have enough air, the projection
+	// routine might just leave enough of the velocities alone.)
+	// 2. Particle reseeding.
+	// 3. (Experimental) Fractional volumes of air depending on level sets.
+	// 4. Just clamp particle velocities/positions :/
+	alpha = 0.14f; // On a 32x32 grid with a dt of 0.01, we can now go down to 0.14.
 				 // Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
 
 	TransferParticlesToGrid(m_particles);
 
-	// let's uh
-	// just patch holes for now
-	/*for (int i = 0; i < (mX + 1)*mY; i++) {
-		if (m_MU[i] == 0.0f) {
-			m_MU[i] = m_oldU[i];
-		}
-	}
-	for (int i = 0; i < mX*(mY+1); i++) {
-		if (m_MV[i] == 0.0f) {
-			m_MV[i] = m_oldV[i];
-		}
-	}*/
-	// That doesn't work!
-
+	// Add gravity
 	// AddBodyForces(dt);
 
 	Project(dt);
@@ -158,10 +164,14 @@ void FluidSim::Simulate(float dt) {
 	for (int i = 0; i < mX*(mY + 1); i++) {
 		m_oldV[i] = m_MV[i]-(1.0f-alpha)*m_oldV[i];
 	}
+	// odprintf("diff1 %f", ComputeL2Norm(m_oldU, (mX+1), mY));
+	// odprintf("diff2 %f", ComputeL2Norm(m_oldU, mX, (mY+1)));
+
 	// Allow for interpolation via tricky pointer hacking
 	std::swap(m_oldU, m_MU);
 	std::swap(m_oldV, m_MV);
-	int len = m_particles.size();
+
+	int len = (int)m_particles.size();
 	for (int i = 0; i < len; i++) {
 		XMFLOAT2 interpDiff = InterpolateMACCell(mX*m_particles[i].X, mY*m_particles[i].Y);
 		if (fabsf(interpDiff.x) > 1000 || fabsf(interpDiff.y) > 1000) {
@@ -173,6 +183,7 @@ void FluidSim::Simulate(float dt) {
 	// ...and swap back
 	std::swap(m_oldU, m_MU);
 	std::swap(m_oldV, m_MV);
+
 	// ...and clean up :(
 	delete[] m_oldU;
 	delete[] m_oldV;
@@ -185,7 +196,7 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 	// Then the particle moves (ux,uy)*dt meters in dt seconds, which we can invert.
 
 	// Set to false to use interpolate and the computed MAC grids
-	int len = particles.size();
+	int len = (int)particles.size();
 	if (false) {
 		for (int i = 0; i < len; i++) {
 			XMFLOAT2 k1 = vectorCurl(particles[i].X, particles[i].Y);
@@ -224,7 +235,7 @@ void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
 	//-------------------------------------
 	// TRANSFER PARTICLE VELOCITIES TO GRID
 	//-------------------------------------
-	int len = particles.size();
+	int len = (int)particles.size();
 	// Accumulates weights
 	float* uAmts = new float[(mX + 1)*mY](); // sets to 0, hopefully
 	float* vAmts = new float[mX*(mY + 1)]();
@@ -252,12 +263,11 @@ void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
 		// ensured: -0.5<px<mX+0.5 and -0.5<py<mY+0.5
 
 		// Remember, the centers of squares are actually integers, not half-integers.
-		// (This may, in fact, be a bug in the interpolation routine - I need to check)
 		// U
 		// affects values: y=floor(py) and floor(py)+1
 		//                 x=floor(px+1/2)-1/2 and floor(px+1/2)+1/2 ...though for indices we add 1/2 to each of those
-		int iy = floorf(py);
-		int ix = floorf(px + 0.5f);
+		int iy = (int)floorf(py);
+		int ix = (int)floorf(px + 0.5f);
 		// Computing alpha for y and x
 		float alphay = py - (float)iy;
 		float alphax = (px + 0.5f) - (float)ix;
@@ -275,8 +285,8 @@ void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
 		// V
 		// affects values: x=floor(px) and floor(px)+1
 		//                 y=floor(py+1/2)-1/2 and floor(py+1/2)+1/2, with same 1/2 index bias as above.
-		ix = floorf(px);
-		iy = floorf(py + 0.5f);
+		ix = (int)floorf(px);
+		iy = (int)floorf(py + 0.5f);
 		// Computing alpha for x and y
 		alphax = px - (float)ix;
 		alphay = (py + 0.5f) - (float)iy;
@@ -312,11 +322,8 @@ void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
 		}
 	}
 
-	/*if (minAmt < 0.01f) {
-		odprintf("min amt was %f!", minAmt);
-	}*/
-
 	// EXTRAPOLATE UNKNOWN VELOCITIES
+	// Fixed: We know the velocities of U and V at the edges as well.
 	float zero_thresh = 0.01f;
 	bool* uValid = new bool[(mX + 1)*mY];
 	bool* vValid = new bool[mX*(mY + 1)];
@@ -324,6 +331,16 @@ void FluidSim::TransferParticlesToGrid(std::vector<Particle> &particles) {
 		uValid[i] = (uAmts[i] > zero_thresh);
 	for (int i = 0; i < mX*(mY + 1); i++)
 		vValid[i] = (vAmts[i] > zero_thresh);
+
+	// Edges
+	for (int y = 0; y < mY; y++) {
+		uValid[0 + y*(mX + 1)] = true; U(0, y) = 0;
+		uValid[mX + y*(mX + 1)] = true; U(mX, y) = 0;
+	}
+	for (int x = 0; x < mX; x++) {
+		vValid[x + 0 * mX] = true; V(x, 0) = 0;
+		vValid[x + mY*mX] = true; V(x, mY) = 0;
+	}
 
 	ExtrapolateValues(m_MU, uValid, mX + 1, mY);
 	ExtrapolateValues(m_MV, vValid, mX, mY + 1);
@@ -352,8 +369,10 @@ void FluidSim::ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySi
 	// Precondition: At least one value of validAr is true.
 
 	// Adjacency directions
-	const int offsets[8] = { 1,0, -1,0, 0,1, 0,-1 };
-	const int numDirs = 4;
+	//const int offsets[8] = { 1,0, -1,0, 0,1, 0,-1 };
+	//const int numDirs = 4;
+	const int offsets[16] = { 1,1, 1,0, 1,-1, 0,1, 0,-1, -1,1, -1,0, -1,-1 };
+	const int numDirs = 8;
 	
 	// BFS initialization
 	std::queue<int> q;
@@ -492,7 +511,7 @@ void FluidSim::Project(float dt) {
 
 	double omega = 2 - 3.22133 / mX;
 
-	int numIterations = 500;
+	int numIterations = 200;
 
 	for (int iter = 0; iter < numIterations; iter++) {
 		for (int stage = 0; stage <= 1; stage++) {
@@ -587,13 +606,13 @@ void FluidSim::Project(float dt) {
 	// U
 	for (int y = 0; y < mY; y++) {
 		for (int x = 0; x < mX-1; x++){
-			U(x + 1, y) = U(x + 1, y) - scale*(p[(x + 1) + mX*y] - p[x + mX*y]);
+			U(x + 1, y) = U(x + 1, y) - static_cast<float>(scale*(p[(x + 1) + mX*y] - p[x + mX*y]));
 		}
 	}
 	// V
 	for (int y = 0; y < mY - 1; y++) {
 		for (int x = 0; x < mX; x++) {
-			V(x, y + 1) = V(x, y + 1) - scale*(p[x + mX*(y + 1)] - p[x + mX*y]);
+			V(x, y + 1) = V(x, y + 1) - static_cast<float>(scale*(p[x + mX*(y + 1)] - p[x + mX*y]));
 		}
 	}
 	// end (modifies internal state).
@@ -636,5 +655,5 @@ XMFLOAT2 vectorPotential(float x, float y) {
 // ...of course, we actually decided to just make this really ad-hoc just now, so ignore all the above.
 XMFLOAT2 vectorCurl(float x, float y) {
 	XMFLOAT2 vf = vectorFunction(6.0f*x-3.0f, 6.0f*y-3.0f);
-	return XMFLOAT2(0.02f*vf.y, -0.02f*vf.x); // should hypothetically circle around peaks
+	return XMFLOAT2(0.1f*vf.y, -0.1f*vf.x); // should hypothetically circle around peaks
 }

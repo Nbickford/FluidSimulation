@@ -54,8 +54,8 @@ private:
 	void BuildResources();
 private:
 	// ALGORITHM PARAMETERS
-	const int mTexWidth = 64;
-	const int mTexHeight = 64;
+	const int mTexWidth = 32;
+	const int mTexHeight = 32;
 
 	// INPUT LAYOUTS
 	// Layout: Position {x32, y32, z32}
@@ -250,8 +250,8 @@ void BoxApp::UpdateScene(float dt) {
 	mPointCount = (UINT)fluidSim.m_particles.size();
 	Point* newPoints = new Point[mPointCount];
 	for (UINT i = 0; i < mPointCount; i++) {
-		newPoints[i].Pos = XMFLOAT3(2.0f*fluidSim.m_particles[i].X-1.0f,
-			2.0f*fluidSim.m_particles[i].Y-1.0f,
+		newPoints[i].Pos = XMFLOAT3(2.0f*(fluidSim.m_particles[i].X+0.5/mTexWidth)-1.0f,
+			2.0f*(fluidSim.m_particles[i].Y+0.5/mTexHeight)-1.0f,
 			-0.1f);
 	}
 

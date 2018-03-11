@@ -48,7 +48,7 @@ D3DApp::D3DApp(HINSTANCE hInstance)
 	md3dDriverType(D3D_DRIVER_TYPE_HARDWARE),
 	mClientWidth(800),
 	mClientHeight(600),
-	mEnable4xMsaa(true) {
+	mEnable4xMsaa(false) {
 
 	gd3dApp = this;
 }
