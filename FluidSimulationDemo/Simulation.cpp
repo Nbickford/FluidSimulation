@@ -567,14 +567,23 @@ void FluidSim::Project(float dt) {
 	// x |-> Dx: divide by number of non-solid neighbors
 	// x |-> Rx: replace x_{i,j} with -(sum(water neighbors' pressures)).
 
+	// Now, we'll use the level set calculations, using the method on pg. 128 of Bridson, 2nd ed.
+	// Bridson never writes the equation out, but the entire effect of this really is to increase
+	// the coefficient on the diagonal from 4 (in the all-fluid case) to 4-phi_{i+1,j}/phi_{i,j}.
+	// (This is an increase, because phi_{i+1,j} and phi_i,j} have different signs.)
+	// The right hand side is unchanged, and remains the discrete divergence.
+
 	// For now, this is simple enough that we can just write it inside a loop.
 
 	// For Gauss-Seidel, we just do Jacobi's method, but we just only use one array of pressures.
+
+	double maxLSRatio = 1000.0; // What should we clamp -phi_{i+1,j}/phi{i,j} to?
 
 	// I. Compute the right-hand side b.
 	int MN = mX*mY;
 	double* b = new double[MN];
 	double* p = new double[MN](); // should zero everything for us
+	double* diagCoeffs = new double[MN];
 
 	// INDEXING: b[x,y] = b[x+mX*y].
 
@@ -589,6 +598,47 @@ void FluidSim::Project(float dt) {
 			double velU = (y == mY - 1 ? solidVel : V(x, y + 1));
 			double velD = (y == 0      ? solidVel : V(x, y    ));
 			b[x + mX*y] = scale*(velR + velU - velL - velD);
+		}
+	}
+
+	// Compute diagonal coefficients.
+	for (int y = 0; y < mY; y++) {
+		for (int x = 0; x < mX; x++) {
+			// We still don't solve for pressures in air.
+			if (Phi(x, y) >= 0.0) continue;
+
+			// = # of non-solid neighbors plus level set things
+			double numNeighbors = 0;
+			if (x != 0) {
+				numNeighbors += 1;
+				if (Phi(x - 1, y) > 0.0) {
+					// Plus fluid fractions thing
+					numNeighbors += MathHelper::Clamp(-(double)Phi(x - 1, y) / Phi(x, y), 0.0, maxLSRatio);
+				}
+			}
+
+			if (x != mX - 1) {
+				numNeighbors += 1;
+				if (Phi(x + 1, y) > 0.0) {
+					numNeighbors += MathHelper::Clamp(-(double)Phi(x + 1, y) / Phi(x, y),0.0,maxLSRatio);
+				}
+			}
+
+			if (y != 0) {
+				numNeighbors += 1;
+				if (Phi(x, y - 1) > 0.0) {
+					numNeighbors += MathHelper::Clamp(-(double)Phi(x, y - 1) / Phi(x, y),0.0,maxLSRatio);
+				}
+			}
+
+			if (y != mY - 1) {
+				numNeighbors += 1;
+				if (Phi(x, y + 1) > 0.0) {
+					numNeighbors += MathHelper::Clamp(-(double)Phi(x, y + 1) / Phi(x, y),0.0,maxLSRatio);
+				}
+			}
+
+			diagCoeffs[x + mX*y] = numNeighbors;
 		}
 	}
 
@@ -614,34 +664,28 @@ void FluidSim::Project(float dt) {
 					if (((x + y) % 2) != stage) continue;
 
 					// Gauss-Seidel update p[x,y].
-					double numNeighbors = 0;
+					double numNeighbors = diagCoeffs[x + mX*y];
 					double neighborMinusSum = 0;
 
 					// If this cell is air, then there's no equation for this cell - 
-					// ((D+R)x) = 0
-					if (Phi(x, y) > 0.0f) continue;
+					if (Phi(x, y) >= 0.0f) continue;
 
 					if (x != 0) {
-						numNeighbors++;
-						// not air?
 						if (Phi(x - 1, y) < 0.0f) {
 							neighborMinusSum -= p[(x - 1) + mX*(y)];
 						}
 					}
 					if (x != mX - 1) {
-						numNeighbors++;
 						if (Phi(x + 1, y) < 0.0f) {
 							neighborMinusSum -= p[(x + 1) + mX*(y)];
 						}
 					}
 					if (y != 0) {
-						numNeighbors++;
 						if (Phi(x, y - 1) < 0.0f){
 							neighborMinusSum -= p[x + mX*(y - 1)];
 						}
 					}
 					if (y != mY - 1) {
-						numNeighbors++;
 						if (Phi(x, y + 1) < 0.0f) {
 							neighborMinusSum -= p[x + mX*(y + 1)];
 						}
@@ -656,45 +700,13 @@ void FluidSim::Project(float dt) {
 			}
 		}
 	}
-	
-	// Compute and print L2 norm
-	// Measure norm
-	double l2Sq = 0;
-	for (int y = 0; y < mY; y++) {
-		for (int x = 0; x < mX; x++) {
-			double numNeighbors = 0;
-			double neighborMinusSum = 0;
-
-			if (x != 0) {
-				numNeighbors++;
-				neighborMinusSum -= p[(x - 1) + mX*(y)];
-			}
-			if (x != mX - 1) {
-				numNeighbors++;
-				neighborMinusSum -= p[(x + 1) + mX*(y)];
-			}
-			if (y != 0) {
-				numNeighbors++;
-				neighborMinusSum -= p[x + mX*(y - 1)];
-			}
-			if (y != mY - 1) {
-				numNeighbors++;
-				neighborMinusSum -= p[x + mX*(y + 1)];
-			}
-
-			l2Sq += pow(numNeighbors*p[x + mX*y] + neighborMinusSum - b[x + mX*y], 2.0);
-		}
-	}
-
-	odprintf("After %i iterations, the L2 norm was %lf.", numIterations, l2Sq);
-
-	if (isnan(l2Sq)) {
-		odprintf("And that's a problem!");
-	}
 
 	// Remove pressure from velocities
-	// Pressure gradient update:
+	// Pressure gradient update in the usual case:
 	// u_{i+1/2,j,k}^{n+1} = u_{i+1/2,j,k}-dt(p_{i+1,j,k}-p_{i,j,k})/(rho dx)
+	// In the case where {i,j} is water and {i+1,j} is air (and similarly for other cases):
+	// u_{i+1/2,j,k}^{n+1} = u_{i+1/2,j,k}+dt(1+clamp(-phi_{i+1,j,k}/phi_{i,j,k}))*p_{i,j,k}/(rho dx)
+	// Note that this does indeed have the right limiting behavior.
 
 	// Edges
 	for (int x = 0; x < mX; x++) {
@@ -712,13 +724,36 @@ void FluidSim::Project(float dt) {
 	// U
 	for (int y = 0; y < mY; y++) {
 		for (int x = 0; x < mX-1; x++){
-			U(x + 1, y) = U(x + 1, y) - static_cast<float>(scale*(p[(x + 1) + mX*y] - p[x + mX*y]));
+			double phiL = Phi(x, y);
+			double phiR = Phi(x + 1, y);
+			// Four cases:
+			if (phiL < 0.0 && phiR < 0.0) {
+				U(x + 1, y) = U(x + 1, y) - (float)(scale*(p[(x + 1) + mX*y] - p[x + mX*y]));
+			} else if (phiL < 0.0 && phiR >= 0.0) {
+				U(x + 1, y) = U(x + 1, y) + (float)(scale*(1 + MathHelper::Clamp(-phiR / phiL, 0.0, maxLSRatio))*p[x + mX*y]);
+			} else if (phiL >= 0.0 && phiR < 0.0) {
+				// I think this is right (...it seems to be?)
+				U(x + 1, y) = U(x + 1, y) + (float)(scale*(1 + MathHelper::Clamp(-phiL / phiR, 0.0, maxLSRatio))*p[(x + 1) + mX*y]);
+			} else {
+				// In air
+				U(x + 1, y) = 0;
+			}
 		}
 	}
 	// V
 	for (int y = 0; y < mY - 1; y++) {
 		for (int x = 0; x < mX; x++) {
-			V(x, y + 1) = V(x, y + 1) - static_cast<float>(scale*(p[x + mX*(y + 1)] - p[x + mX*y]));
+			double phiD = Phi(x, y);
+			double phiU = Phi(x, y+1);
+			if (phiD < 0.0 && phiU < 0.0) {
+				V(x, y + 1) = V(x, y + 1) - (float)(scale*(p[x + mX*(y+1)] - p[x + mX*y]));
+			} else if (phiD < 0.0 && phiU >= 0.0) {
+				V(x, y + 1) = V(x, y + 1) + (float)(scale*(1 + MathHelper::Clamp(-phiU / phiD, 0.0, maxLSRatio))*p[x + mX*y]);
+			} else if (phiD >= 0.0 && phiU < 0.0) {
+				V(x, y + 1) = V(x, y + 1) + (float)(scale*(1 + MathHelper::Clamp(-phiD / phiU, 0.0, maxLSRatio))*p[x + mX*(y+1)]);
+			} else {
+				V(x, y + 1) = 0;
+			}
 		}
 	}
 	// end (modifies internal state).
