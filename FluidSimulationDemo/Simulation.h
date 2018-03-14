@@ -217,7 +217,8 @@ private:
 	float m_nu = 8.90f*1e-4f / 1000.0f; //(=dynamic viscosity/density, both of which are constant) 
 
 	// Particle radius
-	float m_pRadius = 2*0.282f; // 2/(2*sqrt(pi)); completely ad-hoc at the moment
+	float m_pRadius = 2/sqrtf(2.0f); // Needs to be at least sqrt(2)/2 to avoid particles
+	// getting stuck between cells classified as air
 	
 	// MAC velocity grids.
 	// These are all stored in row-major order, so that X is the least significant part.

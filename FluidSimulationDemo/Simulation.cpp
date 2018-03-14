@@ -119,11 +119,16 @@ void FluidSim::Simulate(float dt) {
 
 	// Iterate frame counter
 	frame++;
-	
-	// QQQ DEBUG: Set dt to 0.01 to match simple.cpp
-	dt = 0.01f;
 
 	Advect(m_particles, dt);
+
+	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
+	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
+	float alpha = MathHelper::Clamp(6 * dt*m_nu*m_CellsPerMeter*m_CellsPerMeter, 0.0f, 1.0f);
+				 // Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
+	ComputeLevelSet(m_particles);
+
+	TransferParticlesToGrid(m_particles);
 
 	// Moving complexity here for the moment, this should be refactored out
 	// Store the old grid (...this actually does seem to be the best way)
@@ -134,28 +139,6 @@ void FluidSim::Simulate(float dt) {
 	for (int i = 0; i < mX*(mY + 1); i++) {
 		m_oldV[i] = m_MV[i];
 	}
-
-	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
-	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
-	float alpha = MathHelper::Clamp(6 * dt*m_nu*m_CellsPerMeter*m_CellsPerMeter, 0.0f, 1.0f);
-	//alpha = 0.3f; // can only go down to 0.3 on a 64x64 grid for now (due to lack of velocity interpolation code?)
-	// Well, I implemented the velocity interpolation code, and it's still breaking.
-	// Time to check our results against a working implementation!
-	// Turns out that implementation also breaks on this, but in a different way.
-	// It now looks like the problem's that the projection routine changes its results dramatically depending
-	// on which cells are classified as air - or in this case, which cells have extrapolated results (which of course
-	// will conflict with the boundary conditions).
-	// There are three things that might help fix this:
-	// 1. Implementing the case of cells containing air in the fluid solver. (If we have enough air, the projection
-	// routine might just leave enough of the velocities alone.)
-	// 2. Particle reseeding.
-	// 3. (Experimental) Fractional volumes of air depending on level sets.
-	// 4. Just clamp particle velocities/positions :/
-	alpha = 1.00f; // On a 32x32 grid with a dt of 0.01, we can now go down to 0.14. Or we could. Now air messes it up?
-				 // Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
-	ComputeLevelSet(m_particles);
-
-	TransferParticlesToGrid(m_particles);
 
 	// Add gravity
 	AddBodyForces(dt);
@@ -263,6 +246,9 @@ void FluidSim::ComputeLevelSet(std::vector<Particle> &particles) {
 	// Note: since we'll always have less than 2^16+1 cells on a side and all
 	// integers up to 2^16 are exactly representable as floats, using (int)roundf()
 	// in this context is just fine.
+	// TODO: This implementation is currently incorrect - distances should be implemented
+	// using a priority queue instead of a BFS queue (since using the later is only consistent
+	// with using Manhattan distance, which we're not.)
 	std::queue<int> q;
 	int len = (int)particles.size();
 	for (int i = 0; i < len; i++) {
@@ -728,12 +714,12 @@ void FluidSim::Project(float dt) {
 			double phiR = Phi(x + 1, y);
 			// Four cases:
 			if (phiL < 0.0 && phiR < 0.0) {
-				U(x + 1, y) = U(x + 1, y) - (float)(scale*(p[(x + 1) + mX*y] - p[x + mX*y]));
+				U(x + 1, y) = (float)(U(x + 1, y) - scale*(p[(x + 1) + mX*y] - p[x + mX*y]));
 			} else if (phiL < 0.0 && phiR >= 0.0) {
-				U(x + 1, y) = U(x + 1, y) + (float)(scale*(1 + MathHelper::Clamp(-phiR / phiL, 0.0, maxLSRatio))*p[x + mX*y]);
+				U(x + 1, y) = (float)(U(x + 1, y) + scale*(1 + MathHelper::Clamp(-phiR / phiL, 0.0, maxLSRatio))*p[x + mX*y]);
 			} else if (phiL >= 0.0 && phiR < 0.0) {
 				// I think this is right (...it seems to be?)
-				U(x + 1, y) = U(x + 1, y) + (float)(scale*(1 + MathHelper::Clamp(-phiL / phiR, 0.0, maxLSRatio))*p[(x + 1) + mX*y]);
+				U(x + 1, y) = (float)(U(x + 1, y) + scale*(1 + MathHelper::Clamp(-phiL / phiR, 0.0, maxLSRatio))*p[(x + 1) + mX*y]);
 			} else {
 				// In air
 				U(x + 1, y) = 0;
@@ -746,11 +732,11 @@ void FluidSim::Project(float dt) {
 			double phiD = Phi(x, y);
 			double phiU = Phi(x, y+1);
 			if (phiD < 0.0 && phiU < 0.0) {
-				V(x, y + 1) = V(x, y + 1) - (float)(scale*(p[x + mX*(y+1)] - p[x + mX*y]));
+				V(x, y + 1) = (float)(V(x, y + 1) - scale*(p[x + mX*(y+1)] - p[x + mX*y]));
 			} else if (phiD < 0.0 && phiU >= 0.0) {
-				V(x, y + 1) = V(x, y + 1) + (float)(scale*(1 + MathHelper::Clamp(-phiU / phiD, 0.0, maxLSRatio))*p[x + mX*y]);
+				V(x, y + 1) = (float)(V(x, y + 1) + scale*(1 + MathHelper::Clamp(-phiU / phiD, 0.0, maxLSRatio))*p[x + mX*y]);
 			} else if (phiD >= 0.0 && phiU < 0.0) {
-				V(x, y + 1) = V(x, y + 1) + (float)(scale*(1 + MathHelper::Clamp(-phiD / phiU, 0.0, maxLSRatio))*p[x + mX*(y+1)]);
+				V(x, y + 1) = (float)(V(x, y + 1) + scale*(1 + MathHelper::Clamp(-phiD / phiU, 0.0, maxLSRatio))*p[x + mX*(y+1)]);
 			} else {
 				V(x, y + 1) = 0;
 			}
@@ -760,6 +746,7 @@ void FluidSim::Project(float dt) {
 
 	delete[] b;
 	delete[] p;
+	delete[] diagCoeffs;
 }
 
 float peaks(float x, float y) {
