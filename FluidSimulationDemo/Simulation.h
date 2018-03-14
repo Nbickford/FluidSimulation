@@ -50,10 +50,13 @@ public:
 	void Simulate(float dt);
 private:
 	void Advect(std::vector<Particle> &particles, float dt);
+	void clsInner(int dx, int dy, int x, int y,
+		const std::vector<Particle> &particles,
+		int* closestParticles,
+		float* mPhi,
+		float mPRadius, int mX, int mY);
 	void ComputeLevelSet(const std::vector<Particle> &particles);
-	void ComputeLevelSetOld(const std::vector<Particle> &particles);
 	void TransferParticlesToGrid(std::vector<Particle> &particles);
-	void ExtrapolateValuesOld(float* srcAr, bool* validAr, int xSize, int ySize);
 	void ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySize);
 	void AddBodyForces(float dt);
 	void Project(float dt);

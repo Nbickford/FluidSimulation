@@ -52,6 +52,25 @@ void exportArray(const char* filename, int* ar, int sizeX, int sizeY) {
 	myfile.close();
 }
 
+void odPrintArray(double* ar, int xSize, int ySize) {
+	odprintf("{");
+	for (int y = 0; y < ySize; y++) {
+		odprintf("{");
+		for (int x = 0; x < xSize; x++) {
+			odprintf("%lf", ar[x + xSize*y]);
+			if (x != xSize - 1) {
+				odprintf(",");
+			}
+		}
+		odprintf("}");
+		if (y != ySize - 1) {
+			odprintf(",\n");
+		}
+	}
+	odprintf("}\n");
+}
+
+
 float* ReadArrayFromFile(const char* filename, int& outSizeX, int& outSizeY) {
 	// Implementation based on the answers to https://stackoverflow.com/questions/1075712/reading-delimited-files-in-c
 	// strtof reference: http://www.cplusplus.com/reference/cstdlib/strtof/

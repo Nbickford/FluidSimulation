@@ -55,8 +55,8 @@ private:
 	void BuildResources();
 private:
 	// ALGORITHM PARAMETERS
-	const int mTexWidth = 64;
-	const int mTexHeight = 64;
+	const int mTexWidth = 128;
+	const int mTexHeight = 128;
 
 	// INPUT LAYOUTS
 	// Layout: Position {x32, y32, z32}

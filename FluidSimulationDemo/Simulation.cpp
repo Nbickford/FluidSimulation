@@ -124,8 +124,6 @@ void FluidSim::Simulate(float dt) {
 	for (int i = 0; i < mX*(mY + 1); i++) {
 		m_oldV[i] = m_MV[i]-(1.0f-alpha)*m_oldV[i];
 	}
-	// odprintf("diff1 %f", ComputeL2Norm(m_oldU, (mX+1), mY));
-	// odprintf("diff2 %f", ComputeL2Norm(m_oldU, mX, (mY+1)));
 
 	// Allow for interpolation via tricky pointer hacking
 	std::swap(m_oldU, m_MU);
@@ -139,6 +137,11 @@ void FluidSim::Simulate(float dt) {
 		}
 		m_particles[i].uX = (1.0f-alpha)*m_particles[i].uX + interpDiff.x;
 		m_particles[i].uY = (1.0f-alpha)*m_particles[i].uY + interpDiff.y;
+		if (m_particles[i].uX > 100000) {
+			m_particles[i].uX = 1000000;
+			assert(false);
+			odprintf("hey");
+		}
 	}
 	// ...and swap back
 	std::swap(m_oldU, m_MU);
@@ -157,127 +160,30 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 
 	// Set to false to use interpolate and the computed MAC grids
 	int len = (int)particles.size();
-	if (false) {
-		for (int i = 0; i < len; i++) {
-			XMFLOAT2 k1 = vectorCurl(particles[i].X, particles[i].Y);
-			XMFLOAT2 k2 = vectorCurl(particles[i].X + 0.5f*dt*k1.x, particles[i].Y + 0.5f*dt*k1.y);
-			XMFLOAT2 k3 = vectorCurl(particles[i].X + 0.75f*dt*k2.x, particles[i].Y + 0.75f*dt*k2.y);
-
-			particles[i].uX = (2.0f / 9.0f)*k1.x + (3.0f / 9.0f)*k2.x + (4.0f / 9.0f)*k3.x;
-			particles[i].uY = (2.0f / 9.0f)*k1.y + (3.0f / 9.0f)*k2.y + (4.0f / 9.0f)*k3.y;
-			particles[i].X += dt*particles[i].uX;
-			particles[i].Y += dt*particles[i].uY;
-		}
-
-	} else {
-		for (int i = 0; i < len; i++) {
-			// This was surprisingly difficult to find, but according to an article in GPU Gems 5
-			// (source: https://books.google.com/books?id=uIDSBQAAQBAJ&pg=PA60&lpg=PA60&dq=using+flip+with+runge-kutta&source=bl&ots=XMJL03mmLe&sig=ZVlwK4HpjKePBfpq9ew1T4zeuUI&hl=en&sa=X&ved=0ahUKEwiWtcjpgdfZAhVIYK0KHVz1BVsQ6AEIeTAI#v=onepage&q=using%20flip%20with%20runge-kutta&f=false)
-			// (search key: "using FLIP with runge-kutta")
-			// we should actually update the particle's position entirely using interpolation on the grid,
-			// and only update the particle's velocity using the grid-update step in FLIP.
-			XMFLOAT2 k1 = InterpolateMACCell(mX*particles[i].X, mY*particles[i].Y); // should actually be cellsPerMeter?
-			XMFLOAT2 k2 = InterpolateMACCell(mX*(particles[i].X + 0.5f*dt*k1.x), mY*(particles[i].Y + 0.5f*dt*k1.y));
-			XMFLOAT2 k3 = InterpolateMACCell(mX*(particles[i].X + 0.75f*dt*k2.x), mY*(particles[i].Y + 0.75f*dt*k2.y));
-
-			float vX = (2.0f / 9.0f)*k1.x + (3.0f / 9.0f)*k2.x + (4.0f / 9.0f)*k3.x;
-			float vY = (2.0f / 9.0f)*k1.y + (3.0f / 9.0f)*k2.y + (4.0f / 9.0f)*k3.y;
-			particles[i].X += dt*vX;
-			particles[i].Y += dt*vY;
-
-			// Clamp to box, slightly inwards
-			float eps = 0.1f;
-			particles[i].X = MathHelper::Clamp(particles[i].X, (-0.5f + eps)/mX, 1.0f + (-0.5f - eps)/mX);
-			particles[i].Y = MathHelper::Clamp(particles[i].Y, (-0.5f + eps)/mY, 1.0f + (-0.5f - eps) / mY);
-		}
-	}
-}
-
-void FluidSim::ComputeLevelSetOld(const std::vector<Particle> &particles) {
-	// Uses a breadth-first-search method to compute the level set of the particles.
-	// We could also use fast marching here!
-
-	// For now, we'll just use a simple sphere kernel, which should be OK for the moment.
-	
-	// Holds the index of the closest particle to each cell.
-	int* closestParticles = new int[mX*mY];
-	// Initialize everything to -1, indicating unknown.
-	// Because of this array, we don't need to initialize m_Phi!
-	int gridSize = mX*mY;
-	for (int i = 0; i < gridSize; i++) {
-		closestParticles[i] = -1;
-	}
-
-	// Offsets and directions (this suffices)
-	const int offsets[8] = {1,0, 0,1, 0,-1, -1,0};
-	const int numDirs = 4;
-
-	// Iterate through particles to initialize BFS.
-	// Note: since we'll always have less than 2^16+1 cells on a side and all
-	// integers up to 2^16 are exactly representable as floats, using (int)roundf()
-	// in this context is just fine.
-	// TODO: This implementation is currently incorrect - distances should be implemented
-	// using a priority queue instead of a BFS queue (since using the later is only consistent
-	// with using Manhattan distance, which we're not.)
-	std::queue<int> q;
-	int len = (int)particles.size();
 	for (int i = 0; i < len; i++) {
-		// Compute nearest grid index
-		float px = particles[i].X*m_CellsPerMeter;
-		float py = particles[i].Y*m_CellsPerMeter;
-		int cellX = (int)roundf(px);
-		int cellY = (int)roundf(py);
-		if (cellX<0 || cellX>=mX || cellY<0 || cellY>=mY) continue;
-		// Compute kernel
-		float k = sqrtf((px - (float)cellX)*(px - (float)cellX)
-			          + (py - (float)cellY)*(py - (float)cellY)) - m_pRadius;
-		
-		bool process = false;
-		if (closestParticles[cellX + mX*cellY] < 0) { // if distance unknown (we'll set it)
-			process = true;
-			q.push(cellX);
-			q.push(cellY);
-		}
-		if (process || (m_Phi[cellX + mX*cellY] > k)) {
-			closestParticles[cellX + mX*cellY] = i;
-			m_Phi[cellX + mX*cellY] = k;
-		}
-	}
-	// BFS, slightly backwards (spread instead of gather)
-	while (q.size() > 0) {
-		int x = q.front(); q.pop();
-		int y = q.front(); q.pop();
-		// This cell's closest particle and distance is known:
-		int cpi = closestParticles[x + mX*y];
-		float closestX = particles[cpi].X*m_CellsPerMeter;
-		float closestY = particles[cpi].Y*m_CellsPerMeter;
-		// Iterate over neighbors trying to improve distance;
-		// if neighbor has not been listed yet, add it to the list
-		for (int d = 0; d < numDirs; d++) {
-			int nx = x + offsets[2 * d];
-			int ny = y + offsets[2 * d + 1];
-			if (0 <= nx && nx < mX && 0 <= ny && ny < mY) {
-				float k = sqrtf((closestX - nx)*(closestX - nx)
-					          + (closestY - ny)*(closestY - ny)) - m_pRadius;
+		// This was surprisingly difficult to find, but according to an article in GPU Gems 5
+		// (source: https://books.google.com/books?id=uIDSBQAAQBAJ&pg=PA60&lpg=PA60&dq=using+flip+with+runge-kutta&source=bl&ots=XMJL03mmLe&sig=ZVlwK4HpjKePBfpq9ew1T4zeuUI&hl=en&sa=X&ved=0ahUKEwiWtcjpgdfZAhVIYK0KHVz1BVsQ6AEIeTAI#v=onepage&q=using%20flip%20with%20runge-kutta&f=false)
+		// (search key: "using FLIP with runge-kutta")
+		// we should actually update the particle's position entirely using interpolation on the grid,
+		// and only update the particle's velocity using the grid-update step in FLIP.
+		XMFLOAT2 k1 = InterpolateMACCell(mX*particles[i].X, mY*particles[i].Y); // should actually be cellsPerMeter?
+		XMFLOAT2 k2 = InterpolateMACCell(mX*(particles[i].X + 0.5f*dt*k1.x), mY*(particles[i].Y + 0.5f*dt*k1.y));
+		XMFLOAT2 k3 = InterpolateMACCell(mX*(particles[i].X + 0.75f*dt*k2.x), mY*(particles[i].Y + 0.75f*dt*k2.y));
 
-				if (closestParticles[nx + mX*ny] < 0) {
-					closestParticles[nx + mX*ny] = cpi;
-					Phi(nx, ny) = k;
-					q.push(nx);
-					q.push(ny);
-				} else if (Phi(nx, ny) > k) {
-					Phi(nx, ny) = k;
-					closestParticles[nx + mX*ny] = cpi;
-				}
-			}
-		}
-	}
+		float vX = (2.0f / 9.0f)*k1.x + (3.0f / 9.0f)*k2.x + (4.0f / 9.0f)*k3.x;
+		float vY = (2.0f / 9.0f)*k1.y + (3.0f / 9.0f)*k2.y + (4.0f / 9.0f)*k3.y;
+		particles[i].X += dt*vX;
+		particles[i].Y += dt*vY;
 
-	// and that's it! Clear temporary array.
-	delete[] closestParticles;
+		// Clamp to box, slightly inwards
+		float eps = 0.1f;
+		particles[i].X = MathHelper::Clamp(particles[i].X, (-0.5f + eps)/mX, 1.0f + (-0.5f - eps)/mX);
+		particles[i].Y = MathHelper::Clamp(particles[i].Y, (-0.5f + eps)/mY, 1.0f + (-0.5f - eps) / mY);
+	}
 }
 
-void clsInner(int dx, int dy, int x, int y,
+
+void FluidSim::clsInner(int dx, int dy, int x, int y,
 	const std::vector<Particle> &particles,
 	int* closestParticles,
 	float* mPhi,
@@ -646,79 +552,6 @@ void FluidSim::ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySi
 	// and that's it!
 }
 
-void FluidSim::ExtrapolateValuesOld(float* srcAr, bool* validAr, int xSize, int ySize) {
-	// Simple breadth-first-search-based extrapolation routine based off of Bridson, end of Chapter 4.
-	// Since this is BFS, it's not immediately amenable to parallel processing, other than in the usual way
-	// which requires lots of synchronization.
-	// However, when we're parallelizing this routine, we could potentially try the following approach:
-	// 1. Do a fast scan over the grid to construct the Manhattan distance from each grid point to the closest
-	//      valid grid point.
-	// 2. Do some sort of hierarchical bucket sort to partition the cells into sets based off of their
-	//      distances from step (1).
-	// 3. Extrapolate the values for the grid by extrapolating the values at distance i in parallel
-
-	// Note, however, that this won't produce the same results as the following serial algorithm, so we'll have
-	// to modify this later on. The priority here is getting the code to work.
-
-	// Precondition: At least one value of validAr is true.
-
-	// Adjacency directions
-	//const int offsets[8] = { 1,0, -1,0, 0,1, 0,-1 };
-	//const int numDirs = 4;
-	const int offsets[8] = { 1,0, 0,1, 0,-1, -1,0 };
-	const int numDirs = 4;
-
-	// BFS initialization
-	std::deque<int> q(xSize*ySize / 4);
-	for (int y = 0; y < ySize; y++) {
-		for (int x = 0; x < xSize; x++) {
-			if (!validAr[x + xSize*y]) {
-				// are any neighbors valid?
-				for (int d = 0; d < numDirs; d++) {
-					int nx = x + offsets[2 * d];
-					int ny = y + offsets[2 * d + 1];
-					if (0 <= nx && nx < xSize && 0 <= ny && ny < ySize && validAr[nx + xSize*ny]) {
-						q.push_back(x);
-						q.push_back(y);
-						break;
-					}
-				}
-			}
-		}
-	}
-
-	// BFS iteration
-	while (q.size() > 0) {
-		int x = q.front();  q.pop_front();
-		int y = q.front();  q.pop_front();
-		// already processed?
-		if (validAr[x + xSize*y]) {
-			break;
-		}
-		// Interpolate value and add additional values
-		float numNeighbors = 0.0f;
-		float sumNeighbors = 0.0f;
-		for (int d = 0; d < numDirs; d++) {
-			int nx = x + offsets[2 * d];
-			int ny = y + offsets[2 * d + 1];
-			if (0 <= nx && nx < xSize && 0 <= ny && ny < ySize) {
-				int i = nx + xSize*ny;
-				if (validAr[i]) {
-					sumNeighbors += srcAr[i]; // Interpolate value
-					numNeighbors += 1.0f;
-				} else {
-					q.push_back(nx); // Add additional values
-					q.push_back(ny);
-				}
-			}
-		}
-		assert(numNeighbors > 0.0f);
-		srcAr[x + xSize*y] = sumNeighbors / numNeighbors;
-		validAr[x + xSize*y] = true;
-	}
-	// and that's it!
-}
-
 void FluidSim::AddBodyForces(float dt) {
 	// Just adds dt*g to the velocity field
 	// We use Cartesian coordinates for our grids, hooray!
@@ -727,24 +560,6 @@ void FluidSim::AddBodyForces(float dt) {
 	for (int i = 0; i < count; ++i) {
 		m_MV[i] += gdT;
 	}
-}
-
-void odPrintArray(double* ar, int xSize, int ySize) {
-	odprintf("{");
-	for (int y = 0; y < ySize; y++) {
-		odprintf("{");
-		for (int x = 0; x < xSize; x++) {
-			odprintf("%lf", ar[x+xSize*y]);
-			if (x != xSize - 1) {
-				odprintf(",");
-			}
-		}
-		odprintf("}");
-		if (y != ySize - 1) {
-			odprintf(",\n");
-		}
-	}
-	odprintf("}\n");
 }
 
 void FluidSim::Project(float dt) {
@@ -855,7 +670,7 @@ void FluidSim::Project(float dt) {
 
 	double omega = 2 - 3.22133 / mX;
 
-	int numIterations = 200;
+	int numIterations = 120;
 
 	for (int iter = 0; iter < numIterations; iter++) {
 		for (int stage = 0; stage <= 1; stage++) {
