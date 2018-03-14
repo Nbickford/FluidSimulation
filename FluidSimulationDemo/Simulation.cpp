@@ -192,7 +192,7 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 	}
 }
 
-void FluidSim::ComputeLevelSet(const std::vector<Particle> &particles) {
+void FluidSim::ComputeLevelSetOld(const std::vector<Particle> &particles) {
 	// Uses a breadth-first-search method to compute the level set of the particles.
 	// We could also use fast marching here!
 
@@ -276,8 +276,25 @@ void FluidSim::ComputeLevelSet(const std::vector<Particle> &particles) {
 	delete[] closestParticles;
 }
 
+void clsInner(int dx, int dy, int x, int y,
+	const std::vector<Particle> &particles,
+	int* closestParticles,
+	float* mPhi,
+	float mPRadius, int mX, int mY) {
 
-void FluidSim::ComputeLevelSetOld(const std::vector<Particle> &particles) {
+	int otherPt = closestParticles[(x + dx) + (y + dy)*mX];
+	if (otherPt > 0) {
+		float px = particles[otherPt].X*mX;
+		float py = particles[otherPt].Y*mY;
+		float dist = sqrtf((px - x)*(px - x) + (py - y)*(py - y)) - mPRadius;
+		if (closestParticles[x + mX*y] < 0 || dist < mPhi[x + mX*y]) {
+			closestParticles[x + mX*y] = otherPt;
+			mPhi[x + mX*y] = dist;
+		}
+	}
+}
+
+void FluidSim::ComputeLevelSet(const std::vector<Particle> &particles) {
 	// Uses fast sweeping to compute the level set Phi of the given grid,
 	// using the kernel
 	// sqrt((x-x0)^2+(y-y0)^2)-m_pRadius.
@@ -305,8 +322,8 @@ void FluidSim::ComputeLevelSetOld(const std::vector<Particle> &particles) {
 	int len = (int)particles.size();
 	for (int i = 0; i < len; i++) {
 		// Compute nearest grid index
-		float px = particles[i].X*m_CellsPerMeter;
-		float py = particles[i].Y*m_CellsPerMeter;
+		float px = particles[i].X*mX;
+		float py = particles[i].Y*mY;
 		int cellX = (int)roundf(px);
 		int cellY = (int)roundf(py);
 		if (cellX<0 || cellX >= mX || cellY<0 || cellY >= mY) continue;
@@ -321,55 +338,43 @@ void FluidSim::ComputeLevelSetOld(const std::vector<Particle> &particles) {
 	}
 
 	// 2. Sweep over the grid in all 4 grid orders.
-
-	// This is really bad coding style right here. I hope there's a better way to do this.
-#define clsInner(dx,dy){\
-	        int otherPt = closestParticles[(x+dx)+(y+dy)*mX];\
-	        if (otherPt > 0) {\
-				float px = m_particles[otherPt].X;\
-				float py = m_particles[otherPt].Y;\
-				float dist = sqrtf((px - x)*(px - x) + (py - y)*(py - y)) - m_pRadius;\
-				if (closestParticles[x + mX*y] < 0 || dist < m_Phi[x + mX*y]) {\
-					closestParticles[x + mX*y] = otherPt;\
-					m_Phi[x + mX*y] = dist;\
-				}\
-			}\
-	}
+	// This section uses the clsInner fragment, defined above.
+	// This isn't great; I hope there's a better way to do it.
 
 	// Now, the actual for loops.
 	for (int y = 0; y < mY; y++) {
 		for (int x = 0; x < mX; x++) {
-			if(x!=0)
-				clsInner(-1, 0);
-			if (y != 0)
-				clsInner(0, -1);
+			if (x != 0)
+				clsInner(-1, 0, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
+			if (y != 0) 
+				clsInner(0, -1, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
 		}
 	}
 
 	for (int x = mX - 1; x >= 0; x--) {
 		for (int y = 0; y < mY; y++) {
 			if (x != mX - 1)
-				clsInner(1, 0);
+				clsInner(1, 0, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
 			if (y != 0)
-				clsInner(0, -1);
+				clsInner(0, -1, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
 		}
 	}
 
 	for (int x = mX - 1; x >= 0; x--) {
 		for (int y = mY - 1; y >= 0; y--) {
 			if (x != mX - 1)
-				clsInner(1, 0);
+				clsInner(1, 0, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
 			if (y != mY - 1)
-				clsInner(0, 1);
+				clsInner(0, 1, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
 		}
 	}
 
 	for (int x = 0; x < mX; x++) {
 		for (int y = mY - 1; y >= 0; y--) {
 			if (x != 0)
-				clsInner(-1, 0);
+				clsInner(-1, 0, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
 			if (y != mY - 1)
-				clsInner(0, 1);
+				clsInner(0, 1, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
 		}
 	}
 	// and that's it! Clear temporary array.
