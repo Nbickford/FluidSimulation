@@ -1,5 +1,6 @@
 // d3dApp.cpp. Originally from Frank Luna, reconstructed here.
 
+#define NOMINMAX // thanks Windows
 #include "d3dApp.h"
 #include <windowsx.h> // contains lots of useful macros for Windows programming.
 #include <sstream>

@@ -53,6 +53,7 @@ private:
 	void ComputeLevelSet(const std::vector<Particle> &particles);
 	void ComputeLevelSetOld(const std::vector<Particle> &particles);
 	void TransferParticlesToGrid(std::vector<Particle> &particles);
+	void ExtrapolateValuesOld(float* srcAr, bool* validAr, int xSize, int ySize);
 	void ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySize);
 	void AddBodyForces(float dt);
 	void Project(float dt);

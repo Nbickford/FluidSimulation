@@ -11,6 +11,7 @@
 #include <limits>
 #include <queue> // For serial extrapolation - see ExtrapolateValues(4).
 #include <random>
+#include <algorithm> // for std::min
 
 #include "debugroutines.h"
 
@@ -516,6 +517,146 @@ void FluidSim::ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySi
 	//      distances from step (1).
 	// 3. Extrapolate the values for the grid by extrapolating the values at distance i in parallel
 	
+	// 1. Does a fast scan over the grid to classify cells by their Manhattan distance to valid cells.
+	int* cd = new int[xSize*ySize];
+
+	// Same fast scan method as in ComputeLevelSet, just written out
+	int inf = 1000000000;
+	for (int y = 0; y < ySize; y++) {
+		for (int x = 0; x < xSize; x++) {
+			if (validAr[x + xSize*y]) {
+				cd[x + xSize*y] = 0;
+			} else {
+				cd[x + xSize*y] = inf;
+			}
+		}
+	}
+
+	// y+ x+
+	for (int y = 0; y < ySize; y++) {
+		for (int x = 0; x < xSize; x++) {
+			cd[x + xSize*y] = std::min({cd[x + xSize*y],
+				(x == 0 ? inf : cd[(x - 1) + xSize*y]+1),
+				(y == 0 ? inf : cd[x + (xSize*(y - 1))]+1)
+			});
+		}
+	}
+
+	// y+ x-
+	for (int y = 0; y < ySize; y++) {
+		for (int x = xSize-1; x >= 0; x--) {
+			cd[x + xSize*y] = std::min({ cd[x + xSize*y],
+				(x == xSize-1 ? inf : cd[(x + 1) + xSize*y]+1),
+				(y == 0 ? inf : cd[x + (xSize*(y - 1))]+1)
+			});
+		}
+	}
+
+	// y- x-
+	for (int y = ySize-1; y >=0; y--) {
+		for (int x = xSize - 1; x >= 0; x--) {
+			cd[x + xSize*y] = std::min({ cd[x + xSize*y],
+				(x == xSize - 1 ? inf : cd[(x + 1) + xSize*y]+1),
+				(y == ySize - 1 ? inf : cd[x + (xSize*(y + 1))]+1)
+			});
+		}
+	}
+
+	// y- x+
+	for (int y = ySize - 1; y >= 0; y--) {
+		for (int x = 0; x < xSize; x++) {
+			cd[x + xSize*y] = std::min({ cd[x + xSize*y],
+				(x == 0 ? inf : cd[(x - 1) + xSize*y]+1),
+				(y == ySize - 1 ? inf : cd[x + (xSize*(y + 1))]+1)
+			});
+		}
+	}
+
+	// 2. Partition cells into bins
+	// Counts (at most xSize+ySize, but let's count it)
+	int numBuckets = 0;
+	for (int y = 0; y < ySize; y++) {
+		for (int x = 0; x < xSize; x++) {
+			if (cd[x + xSize*y] > numBuckets) {
+				numBuckets = cd[x + xSize*y];
+			}
+		}
+	}
+	numBuckets++;
+
+	int* bucketCounts = new int[numBuckets];
+	for (int i = 0; i < numBuckets; i++) {
+		bucketCounts[i] = 0;
+	}
+	for (int y = 0; y < ySize; y++) {
+		for (int x = 0; x < xSize; x++) {
+			bucketCounts[cd[x + xSize*y]]++;
+		}
+	}
+
+	// Prefix sum
+	int* sums = new int[numBuckets];
+	sums[0] = 0;
+	for (int i = 1; i < numBuckets; i++) {
+		sums[i] = sums[i - 1] + bucketCounts[i - 1];
+	}
+	
+	assert(sums[numBuckets - 1] + bucketCounts[numBuckets - 1] == xSize*ySize);
+
+	int* indices = new int[xSize*ySize * 2];
+	for (int y = 0; y < ySize; y++) {
+		for (int x = 0; x < xSize; x++) {
+			int c = cd[x + xSize*y];
+			int index = sums[c];
+			indices[2 * index] = x;
+			indices[2 * index + 1] = y;
+			sums[c]++;
+		}
+	}
+
+	// 3. Extrapolate values from the inside out.
+	int directions[8] = { 1,0,0,1,-1,0,0,-1 };
+	int numDirs = 4;
+	for (int i = 0; i < xSize*ySize; i++) {
+		int x = indices[2 * i];
+		int y = indices[2 * i + 1];
+		int myc = cd[x + xSize*y];
+		if (myc == 0) continue; // don't modify known values
+		float numNeighbors = 0.0f;
+		float neighborSum = 0.0f;
+
+		for (int d = 0; d < numDirs; d++) {
+			int nx = x + directions[2 * d];
+			int ny = y + directions[2 * d + 1];
+			if (0 <= nx && nx < xSize && 0 <= ny && ny < ySize && (cd[nx + xSize*ny] < myc)) {
+				numNeighbors += 1.0f;
+				neighborSum += srcAr[nx + xSize*ny];
+			}
+		}
+		assert(numNeighbors > 0.0f);
+		srcAr[x + xSize*y] = neighborSum / numNeighbors;
+	}
+
+	// Clean up
+	delete[] cd;
+	delete[] bucketCounts;
+	delete[] sums;
+	delete[] indices;
+	
+	// and that's it!
+}
+
+void FluidSim::ExtrapolateValuesOld(float* srcAr, bool* validAr, int xSize, int ySize) {
+	// Simple breadth-first-search-based extrapolation routine based off of Bridson, end of Chapter 4.
+	// Since this is BFS, it's not immediately amenable to parallel processing, other than in the usual way
+	// which requires lots of synchronization.
+	// However, when we're parallelizing this routine, we could potentially try the following approach:
+	// 1. Do a fast scan over the grid to construct the Manhattan distance from each grid point to the closest
+	//      valid grid point.
+	// 2. Do some sort of hierarchical bucket sort to partition the cells into sets based off of their
+	//      distances from step (1).
+	// 3. Extrapolate the values for the grid by extrapolating the values at distance i in parallel
+
 	// Note, however, that this won't produce the same results as the following serial algorithm, so we'll have
 	// to modify this later on. The priority here is getting the code to work.
 
@@ -524,21 +665,21 @@ void FluidSim::ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySi
 	// Adjacency directions
 	//const int offsets[8] = { 1,0, -1,0, 0,1, 0,-1 };
 	//const int numDirs = 4;
-	const int offsets[16] = { 1,1, 1,0, 1,-1, 0,1, 0,-1, -1,1, -1,0, -1,-1 };
-	const int numDirs = 8;
-	
+	const int offsets[8] = { 1,0, 0,1, 0,-1, -1,0 };
+	const int numDirs = 4;
+
 	// BFS initialization
-	std::queue<int> q;
+	std::deque<int> q(xSize*ySize / 4);
 	for (int y = 0; y < ySize; y++) {
 		for (int x = 0; x < xSize; x++) {
 			if (!validAr[x + xSize*y]) {
 				// are any neighbors valid?
 				for (int d = 0; d < numDirs; d++) {
-					int nx = x+offsets[2 * d];
-					int ny = y+offsets[2 * d + 1];
+					int nx = x + offsets[2 * d];
+					int ny = y + offsets[2 * d + 1];
 					if (0 <= nx && nx < xSize && 0 <= ny && ny < ySize && validAr[nx + xSize*ny]) {
-						q.push(x);
-						q.push(y);
+						q.push_back(x);
+						q.push_back(y);
 						break;
 					}
 				}
@@ -548,8 +689,8 @@ void FluidSim::ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySi
 
 	// BFS iteration
 	while (q.size() > 0) {
-		int x = q.front();  q.pop();
-		int y = q.front();  q.pop();
+		int x = q.front();  q.pop_front();
+		int y = q.front();  q.pop_front();
 		// already processed?
 		if (validAr[x + xSize*y]) {
 			break;
@@ -566,8 +707,8 @@ void FluidSim::ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySi
 					sumNeighbors += srcAr[i]; // Interpolate value
 					numNeighbors += 1.0f;
 				} else {
-					q.push(nx); // Add additional values
-					q.push(ny);
+					q.push_back(nx); // Add additional values
+					q.push_back(ny);
 				}
 			}
 		}

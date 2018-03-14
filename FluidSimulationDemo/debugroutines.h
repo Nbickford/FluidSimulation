@@ -30,6 +30,28 @@ void exportArray(const char* filename, float* ar, int sizeX, int sizeY) {
 	myfile.close();
 }
 
+void exportArray(const char* filename, int* ar, int sizeX, int sizeY) {
+	std::ofstream myfile;
+	myfile.open(filename);
+
+	// Stretch goal: Save floats in hexfloat format
+	// for lossless passing between applications
+
+	for (int y = 0; y < sizeY; y++) {
+		for (int x = 0; x < sizeX; x++) {
+			myfile << ar[x + sizeX*y];
+			if (x != sizeX - 1) {
+				myfile << '\t';
+			}
+		}
+		if (y != sizeY - 1) {
+			myfile << '\n';
+		}
+	}
+
+	myfile.close();
+}
+
 float* ReadArrayFromFile(const char* filename, int& outSizeX, int& outSizeY) {
 	// Implementation based on the answers to https://stackoverflow.com/questions/1075712/reading-delimited-files-in-c
 	// strtof reference: http://www.cplusplus.com/reference/cstdlib/strtof/

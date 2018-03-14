@@ -7,6 +7,7 @@
 #ifndef MATHHELPER_H
 #define MATHHELPER_H
 
+#define NOMINMAX // thanks windows
 #include <Windows.h>
 //include <xnamath.h>
 #include <DirectXMath.h>
