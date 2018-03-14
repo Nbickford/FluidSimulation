@@ -192,7 +192,7 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 	}
 }
 
-void FluidSim::ComputeLevelSet(std::vector<Particle> &particles) {
+void FluidSim::ComputeLevelSet(const std::vector<Particle> &particles) {
 	// Uses a breadth-first-search method to compute the level set of the particles.
 	// We could also use fast marching here!
 
@@ -272,6 +272,106 @@ void FluidSim::ComputeLevelSet(std::vector<Particle> &particles) {
 		}
 	}
 
+	// and that's it! Clear temporary array.
+	delete[] closestParticles;
+}
+
+
+void FluidSim::ComputeLevelSetOld(const std::vector<Particle> &particles) {
+	// Uses fast sweeping to compute the level set Phi of the given grid,
+	// using the kernel
+	// sqrt((x-x0)^2+(y-y0)^2)-m_pRadius.
+
+	// Woah, fast sweeping has a Wikipedia article! But it's a stub.
+	// Bridson p. 126 says AKPG07 has a practical fast /marching/ method
+	// However, chapter 4.3 (pg 49-51) has pseudocode for the method we'll be using,
+	// which is based on algorithm 4 in [Tsa02],
+	// "Rapid and Accurate Computation of the Distance Function using Grids"
+	// See also [JBS06].
+	// In this code, we'll use the 2D method from Zhao's "A Fast Sweeping Method for Eikonal Equations",
+	// which I found from Gomez' https://github.com/jvgomez/fast_methods.
+
+
+	// 1. Compute distances for cells containing particles.
+	// Holds the index of the closest particle to each cell.
+	int* closestParticles = new int[mX*mY];
+	// Initialize everything to -1, indicating unknown.
+	// Because of this array, we don't need to initialize m_Phi!
+	int gridSize = mX*mY;
+	for (int i = 0; i < gridSize; i++) {
+		closestParticles[i] = -1;
+	}
+
+	int len = (int)particles.size();
+	for (int i = 0; i < len; i++) {
+		// Compute nearest grid index
+		float px = particles[i].X*m_CellsPerMeter;
+		float py = particles[i].Y*m_CellsPerMeter;
+		int cellX = (int)roundf(px);
+		int cellY = (int)roundf(py);
+		if (cellX<0 || cellX >= mX || cellY<0 || cellY >= mY) continue;
+		// Compute kernel
+		float k = sqrtf((px - (float)cellX)*(px - (float)cellX)
+			+ (py - (float)cellY)*(py - (float)cellY)) - m_pRadius;
+
+		if ((closestParticles[cellX + mX*cellY] < 0) || (m_Phi[cellX + mX*cellY] > k)) {
+			closestParticles[cellX + mX*cellY] = i;
+			m_Phi[cellX + mX*cellY] = k;
+		}
+	}
+
+	// 2. Sweep over the grid in all 4 grid orders.
+
+	// This is really bad coding style right here. I hope there's a better way to do this.
+#define clsInner(dx,dy){\
+	        int otherPt = closestParticles[(x+dx)+(y+dy)*mX];\
+	        if (otherPt > 0) {\
+				float px = m_particles[otherPt].X;\
+				float py = m_particles[otherPt].Y;\
+				float dist = sqrtf((px - x)*(px - x) + (py - y)*(py - y)) - m_pRadius;\
+				if (closestParticles[x + mX*y] < 0 || dist < m_Phi[x + mX*y]) {\
+					closestParticles[x + mX*y] = otherPt;\
+					m_Phi[x + mX*y] = dist;\
+				}\
+			}\
+	}
+
+	// Now, the actual for loops.
+	for (int y = 0; y < mY; y++) {
+		for (int x = 0; x < mX; x++) {
+			if(x!=0)
+				clsInner(-1, 0);
+			if (y != 0)
+				clsInner(0, -1);
+		}
+	}
+
+	for (int x = mX - 1; x >= 0; x--) {
+		for (int y = 0; y < mY; y++) {
+			if (x != mX - 1)
+				clsInner(1, 0);
+			if (y != 0)
+				clsInner(0, -1);
+		}
+	}
+
+	for (int x = mX - 1; x >= 0; x--) {
+		for (int y = mY - 1; y >= 0; y--) {
+			if (x != mX - 1)
+				clsInner(1, 0);
+			if (y != mY - 1)
+				clsInner(0, 1);
+		}
+	}
+
+	for (int x = 0; x < mX; x++) {
+		for (int y = mY - 1; y >= 0; y--) {
+			if (x != 0)
+				clsInner(-1, 0);
+			if (y != mY - 1)
+				clsInner(0, 1);
+		}
+	}
 	// and that's it! Clear temporary array.
 	delete[] closestParticles;
 }
