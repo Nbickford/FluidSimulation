@@ -15,6 +15,7 @@
 
 #define BOX_DEMO
 #ifdef BOX_DEMO
+
 #include "d3dApp.h"
 #include "FX11\d3dx11effect.h"
 #include "MathHelper.h"
@@ -54,8 +55,8 @@ private:
 	void BuildResources();
 private:
 	// ALGORITHM PARAMETERS
-	const int mTexWidth = 32;
-	const int mTexHeight = 32;
+	const int mTexWidth = 64;
+	const int mTexHeight = 64;
 
 	// INPUT LAYOUTS
 	// Layout: Position {x32, y32, z32}
@@ -109,10 +110,7 @@ private:
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 	PSTR cmdLine, int showCmd)
 {
-	// Enable run-time memory check for debug builds.
-#if defined(DEBUG) | defined (_DEBUG)
-	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
-#endif
+	// Don't enable run-time memory check for debug builds.
 
 	BoxApp theApp(hInstance);
 	if (!theApp.Init()) {
@@ -250,8 +248,8 @@ void BoxApp::UpdateScene(float dt) {
 	mPointCount = (UINT)fluidSim.m_particles.size();
 	Point* newPoints = new Point[mPointCount];
 	for (UINT i = 0; i < mPointCount; i++) {
-		newPoints[i].Pos = XMFLOAT3(2.0f*(fluidSim.m_particles[i].X+0.5/mTexWidth)-1.0f,
-			2.0f*(fluidSim.m_particles[i].Y+0.5/mTexHeight)-1.0f,
+		newPoints[i].Pos = XMFLOAT3(2.0f*(fluidSim.m_particles[i].X+0.5f/mTexWidth)-1.0f,
+			2.0f*(fluidSim.m_particles[i].Y+0.5f/mTexHeight)-1.0f,
 			-0.1f);
 	}
 
@@ -571,7 +569,7 @@ void BoxApp::BuildFX() {
 	DWORD shaderFlags = 0;
 #if defined(DEBUG) || defined(_DEBUG)
 	shaderFlags |= D3D10_SHADER_DEBUG;
-	shaderFlags |= D3D10_SHADER_SKIP_OPTIMIZATION;
+	//shaderFlags |= D3D10_SHADER_SKIP_OPTIMIZATION;
 #endif
 
 	//--------------------------------

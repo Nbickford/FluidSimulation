@@ -61,7 +61,7 @@ void FluidSim::ResetSimulation() {
 	// and set their velocities
 	m_particles.clear();
 	for (int y = 1; y < mY-1; y++) {
-		for (int x = 16; x < mX-1; x++) {
+		for (int x = mX/2; x < mX-1; x++) {
 			float px = x - 0.25f;
 			float py = y - 0.25f;
 			float rX = px / m_CellsPerMeter; //real-world X
@@ -76,46 +76,12 @@ void FluidSim::ResetSimulation() {
 			}
 		}
 	}
-
-	// Remove initial divergence
-	Project(1.0);
-
-	// Print divergence
-	PrintDivergence();
-}
-
-void FluidSim::PrintDivergence() {
-	bool pAr = false;
-	float maxdiv = 0;
-	int maxdivX = -1;
-	int maxdivY = -1;
-	if (pAr) odprintf("{");
-	for (int y = 0; y < mY; y++) {
-		if (pAr) odprintf("{");
-		for (int x = 0; x < mX; x++) {
-			float div = U(x + 1, y) + V(x, y + 1) - U(x, y) - V(x, y);
-			if (abs(div) > abs(maxdiv)) {
-				maxdiv = div;
-				maxdivX = x;
-				maxdivY = y;
-			}
-			if (pAr) odprintf("%f", div);
-			if (x != mX - 1) {
-				if (pAr) odprintf(",");
-			}
-		}
-		if (pAr) odprintf("}");
-		if (y != mY - 1) {
-			if (pAr) odprintf(",\n");
-		}
-	}
-	if (pAr) odprintf("}");
-	odprintf("Maximum divergence of %f is at (x,y)=(%i, %i)", maxdiv, maxdivX, maxdivY);
 }
 
 void FluidSim::Simulate(float dt) {
 	// Clamp maximum dt
 	dt = MathHelper::Clamp(dt, 0.0f, 1.0f/15.0f);
+	dt = 0.01f; // QQQ DEBUG Limit dt for debugging purposes
 
 	// Iterate frame counter
 	frame++;
@@ -144,8 +110,6 @@ void FluidSim::Simulate(float dt) {
 	AddBodyForces(dt);
 
 	Project(dt);
-
-	PrintDivergence();
 
 	//---------------------------------------
 	// FINISH SETTING NEW PARTICLE VELOCITIES
@@ -219,6 +183,11 @@ void FluidSim::Advect(std::vector<Particle> &particles, float dt) {
 			float vY = (2.0f / 9.0f)*k1.y + (3.0f / 9.0f)*k2.y + (4.0f / 9.0f)*k3.y;
 			particles[i].X += dt*vX;
 			particles[i].Y += dt*vY;
+
+			// Clamp to box, slightly inwards
+			float eps = 0.1f;
+			particles[i].X = MathHelper::Clamp(particles[i].X, (-0.5f + eps)/mX, 1.0f + (-0.5f - eps)/mX);
+			particles[i].Y = MathHelper::Clamp(particles[i].Y, (-0.5f + eps)/mY, 1.0f + (-0.5f - eps) / mY);
 		}
 	}
 }

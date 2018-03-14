@@ -55,7 +55,6 @@ private:
 	void ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySize);
 	void AddBodyForces(float dt);
 	void Project(float dt);
-	void PrintDivergence();
 private:
 	//******************************************************
 	// 2D METHODS

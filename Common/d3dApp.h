@@ -5,11 +5,6 @@
 #include "GameTimer.h"
 #include <string>
 
-#if defined(DEBUG) || defined(_DEBUG)
-#define _CRTDBG_MAP_ALLOC
-#include <crtdbg.h>
-#endif
-
 class D3DApp {
 public:
 	D3DApp(HINSTANCE hInstance);
