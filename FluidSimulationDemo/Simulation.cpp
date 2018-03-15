@@ -15,8 +15,6 @@
 
 #include "debugroutines.h"
 
-int frame = 0;
-
 FluidSim::FluidSim(int xSize, int ySize, float CellsPerMeter)
 	:mX(xSize), mY(ySize), m_CellsPerMeter(CellsPerMeter),
 	m_particles() {
@@ -85,6 +83,7 @@ void FluidSim::Simulate(float dt) {
 	dt = 0.01f; // QQQ DEBUG Limit dt for debugging purposes
 
 	// Iterate frame counter
+	static int frame = 0;
 	frame++;
 
 	Advect(m_particles, dt);

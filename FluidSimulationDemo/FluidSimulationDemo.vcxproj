@@ -154,7 +154,9 @@
     <ClCompile Include="..\Libraries\DirectXTK\DDSTextureLoader.cpp" />
     <ClCompile Include="..\Libraries\DirectXTK\pch.cpp" />
     <ClCompile Include="FluidSimDemo.cpp" />
+    <ClCompile Include="FluidSimDemoOld.cpp" />
     <ClCompile Include="Simulation.cpp" />
+    <ClCompile Include="Simulation3D.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Common\d3dApp.h" />
@@ -174,6 +176,7 @@
     <ClInclude Include="debugroutines.h" />
     <ClInclude Include="newcompiler.h" />
     <ClInclude Include="Simulation.h" />
+    <ClInclude Include="Simulation3D.h" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="FX\Basic.fx">

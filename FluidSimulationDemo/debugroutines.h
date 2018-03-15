@@ -6,6 +6,9 @@
 #include <fstream>
 #include <string>
 
+#include "Simulation.h"
+#include "Simulation3D.h"
+
 // DEBUG QQQ
 // Export/import routines for debugging using text files
 void exportArray(const char* filename, float* ar, int sizeX, int sizeY) {

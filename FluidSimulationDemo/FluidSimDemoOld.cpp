@@ -13,6 +13,7 @@
 //
 //*****************************************************************
 
+#if 0
 #define BOX_DEMO
 #ifdef BOX_DEMO
 
@@ -98,14 +99,14 @@ private:
 	XMFLOAT4X4 mProj;
 
 	float mZoomFactor;
-	float mCamPhi; // from azimuth
-	float mCamTheta;
+	float mCameraPositionX;
+	float mCameraPositionY;
 
 	POINT mLastMousePos;
 
 	// Local game state
 	float totalTime = 0.0f; // NOTE: This is a problem, since it'll start to have problems after ~ 77 hours.
-	FluidSim3 fluidSim;
+	FluidSim fluidSim;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -124,9 +125,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 // Constructor
 BoxApp::BoxApp(HINSTANCE hInstance)
 	:D3DApp(hInstance), mQuadVB(0), mQuadIB(0), mFX(0), mTech(0), mInputLayout(0),
-	mZoomFactor(8.0f), mCamPhi(3.1415926535f/2.0f), mCamTheta(0.0f),
+	mZoomFactor(8.0f), mCameraPositionX(0.0f), mCameraPositionY(0.0f),
 	mDiffuseMap(0), mDiffuseMapSRV(0),
-	fluidSim(mTexWidth, mTexHeight, mTexDepth, (float)mTexWidth)
+	fluidSim(mTexWidth, mTexHeight, (float)mTexWidth)
 {
 	mMainWndCaption = L"Fluid Simulation Demo";
 
@@ -187,12 +188,8 @@ void BoxApp::OnResize() {
 
 void BoxApp::UpdateView() {
 	// Build the view matrix
-	float rad = 2.0f;
-	XMVECTOR pos = XMVectorSet(
-		rad*sinf(mCamTheta)*sinf(mCamPhi), 
-		rad*cosf(mCamPhi), 
-		-rad*cosf(mCamTheta)*sinf(mCamPhi), 1.0f);
-	XMVECTOR target = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
+	XMVECTOR pos = XMVectorSet(mCameraPositionX, mCameraPositionY, -1.0f, 1.0f);
+	XMVECTOR target = XMVectorSet(mCameraPositionX, mCameraPositionY, 0.0f, 0.0f);
 	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
 	XMMATRIX V = XMMatrixLookAtLH(pos, target, up);
@@ -205,11 +202,10 @@ void BoxApp::UpdateView() {
 	// causes an assertion failure in the XMMath library.
 	// This also fails when the client width or height is equal to 0, which occurs
 	// whenever we minimize the window.
-	XMMATRIX P = XMMatrixPerspectiveFovLH(MathHelper::Pi*0.5f, MathHelper::Pi*0.5f, 0.1f, 10.0f);
-	/*XMMATRIX P = XMMatrixOrthographicLH((2.0f*mClientWidth) / (mZoomFactor*mTexWidth),
+	XMMATRIX P = XMMatrixOrthographicLH((2.0f*mClientWidth) / (mZoomFactor*mTexWidth),
 		(2.0f*mClientHeight) / (mZoomFactor*mTexHeight),
 		0.5f,
-		2.0f);*/
+		2.0f);
 	XMStoreFloat4x4(&mProj, P);
 
 	// Interesting problem: at zoom factor 1, this fails when mClientWidth is odd.
@@ -256,7 +252,7 @@ void BoxApp::UpdateScene(float dt) {
 	for (UINT i = 0; i < mPointCount; i++) {
 		newPoints[i].Pos = XMFLOAT3(2.0f*(fluidSim.m_particles[i].X+0.5f/mTexWidth)-1.0f,
 			2.0f*(fluidSim.m_particles[i].Y+0.5f/mTexHeight)-1.0f,
-			2.0f*(fluidSim.m_particles[i].Z+0.5f/mTexDepth)-1.0f);
+			-0.1f);
 	}
 
 	D3D11_MAPPED_SUBRESOURCE mappedResource;
@@ -370,8 +366,8 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y) {
 		float p2WorldSF = 2.0f / (mProj._22*mClientHeight);
 		float dx = p2WorldSF*static_cast<float>(x - mLastMousePos.x);
 		float dy = p2WorldSF*static_cast<float>(y - mLastMousePos.y);
-		mCamTheta -= dx;
-		mCamPhi -= dy;
+		mCameraPositionX -= dx;
+		mCameraPositionY += dy;
 	}
 	if ((btnState & MK_RBUTTON) != 0) {
 		// We just make each pixel correspond to some small factor.
@@ -422,8 +418,8 @@ void BoxApp::OnCharacterKey(char keyCode) {
 		break;
 	case '0':
 		mZoomFactor = 1.0f;
-		mCamPhi = 3.14159f/2.0f; // TODO: fix this for the case of non-even windows
-		mCamTheta = 0.0f;
+		mCameraPositionX = 0.0f; // TODO: fix this for the case of non-even windows
+		mCameraPositionY = 0.0f;
 		break;
 	case 'r':
 		fluidSim.ResetSimulation();
@@ -438,10 +434,10 @@ void BoxApp::BuildGeometryBuffers() {
 	// Create vertex buffer and send it to the GPU
 	Vertex vertices[] =
 	{
-		{ XMFLOAT3(-1.0f, -1.0f,  1.0f), XMFLOAT2(0.0f, 1.0f) },
-		{ XMFLOAT3(-1.0f, +1.0f,  1.0f), XMFLOAT2(0.0f, 0.0f) },
-		{ XMFLOAT3(+1.0f, +1.0f,  1.0f), XMFLOAT2(1.0f, 0.0f) },
-		{ XMFLOAT3(+1.0f, -1.0f,  1.0f), XMFLOAT2(1.0f, 1.0f) }
+		{ XMFLOAT3(-1.0f, -1.0f,  0.0f), XMFLOAT2(0.0f, 1.0f) },
+		{ XMFLOAT3(-1.0f, +1.0f,  0.0f), XMFLOAT2(0.0f, 0.0f) },
+		{ XMFLOAT3(+1.0f, +1.0f,  0.0f), XMFLOAT2(1.0f, 0.0f) },
+		{ XMFLOAT3(+1.0f, -1.0f,  0.0f), XMFLOAT2(1.0f, 1.0f) }
 	};
 
 	// Create the buffer on the device; get a pointer to the ID3D11Buffer, which is mQuadVB.
@@ -480,7 +476,7 @@ void BoxApp::BuildGeometryBuffers() {
 	// POINTS
 	//********************************************************
 	// We'll create an empty vertex buffer, which we'll then fill in.
-	UINT count = 8 * mTexWidth*mTexHeight*mTexDepth;
+	UINT count = 4 * mTexWidth*mTexHeight;
 	D3D11_BUFFER_DESC vbd2;
 	vbd2.ByteWidth = sizeof(Point) * count; // HARDCODED :(
 	vbd2.Usage = D3D11_USAGE_DYNAMIC; // That's right
@@ -647,4 +643,5 @@ void BoxApp::BuildVertexLayout() {
 		passDesc.pIAInputSignature,
 		passDesc.IAInputSignatureSize, &mPointsInputLayout));
 }
+#endif
 #endif
