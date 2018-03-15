@@ -248,8 +248,36 @@ void FluidSim::ComputeLevelSet(const std::vector<Particle> &particles) {
 	// This section uses the clsInner fragment, defined above.
 	// This isn't great; I hope there's a better way to do it.
 
-	// Now, the actual for loops.
+	// Q: Does this work?
+	// looks in x- x+ y- y+
+	// Although it's not mentioned in the above articles (?), this method seems to work:
+	// If not, use the method in the commented block of text below.
 	for (int y = 0; y < mY; y++) {
+		for (int x = 1; x < mX; x++) {
+			clsInner(-1, 0, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
+		}
+	}
+
+	for (int y = 0; y < mY; y++) {
+		for (int x = mX-2; x >= 0; x--) {
+			clsInner(1, 0, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
+		}
+	}
+
+	for (int y = 1; y < mY; y++) {
+		for (int x = 0; x < mX; x++) {
+			clsInner(0, -1, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
+		}
+	}
+
+	for (int y = mY-2; y >=0 ; y--) {
+		for (int x = 0; x < mX; x++) {
+			clsInner(0, 1, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
+		}
+	}
+
+	// Now, the actual for loops.
+	/*for (int y = 0; y < mY; y++) {
 		for (int x = 0; x < mX; x++) {
 			if (x != 0)
 				clsInner(-1, 0, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
@@ -283,7 +311,7 @@ void FluidSim::ComputeLevelSet(const std::vector<Particle> &particles) {
 			if (y != mY - 1)
 				clsInner(0, 1, x, y, particles, closestParticles, m_Phi, m_pRadius, mX, mY);
 		}
-	}
+	}*/
 	// and that's it! Clear temporary array.
 	delete[] closestParticles;
 }
