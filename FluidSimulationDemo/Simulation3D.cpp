@@ -12,6 +12,7 @@
 #include <queue> // For serial extrapolation - see ExtrapolateValues(4).
 #include <random>
 #include <algorithm> // for std::min
+#include <numeric> // for debug std::accumulate
 
 //#include "debugroutines.h" TODO: Implement stb-like single-header library properly
 
@@ -111,11 +112,11 @@ void FluidSim3::Simulate(float dt) {
 	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
 	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
 	float alpha = MathHelper::Clamp(6 * dt*m_nu*m_CellsPerMeter*m_CellsPerMeter, 0.0f, 1.0f);
-	alpha = 1.00f;
+	//alpha = 1.00f;
 	// Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
-	//ComputeLevelSet(m_particles);
+	ComputeLevelSet(m_particles);
 
-	//TransferParticlesToGrid(m_particles);
+	TransferParticlesToGrid(m_particles);
 
 	// Moving complexity here for the moment, this should be refactored out
 	// Store the old grid (...this actually does seem to be the best way)
@@ -133,7 +134,7 @@ void FluidSim3::Simulate(float dt) {
 	}
 
 	// Add gravity
-	//AddBodyForces(dt);
+	AddBodyForces(dt);
 
 	Project(dt);
 
@@ -182,6 +183,8 @@ void FluidSim3::Simulate(float dt) {
 	delete[] m_oldU;
 	delete[] m_oldV;
 	delete[] m_oldW;
+
+	//odprintf("Ran a step");
 }
 
 void FluidSim3::Advect(std::vector<Particle3> &particles, float dt) {
@@ -192,7 +195,14 @@ void FluidSim3::Advect(std::vector<Particle3> &particles, float dt) {
 
 	// Set to false to use interpolate and the computed MAC grids
 	int len = (int)particles.size();
+	int di = 272;
+	if (particles[di].Y > 15.0f / 16.0f) {
+		odprintf("{%f, %f, %f}", particles[di].uX, particles[di].uY, particles[di].uZ);
+	}
 	for (int i = 0; i < len; i++) {
+		if (i == di && particles[di].Y > 15.0f / 16.0f) {
+			odprintf("hey");
+		}
 		// This was surprisingly difficult to find, but according to an article in GPU Gems 5
 		// (source: https://books.google.com/books?id=uIDSBQAAQBAJ&pg=PA60&lpg=PA60&dq=using+flip+with+runge-kutta&source=bl&ots=XMJL03mmLe&sig=ZVlwK4HpjKePBfpq9ew1T4zeuUI&hl=en&sa=X&ved=0ahUKEwiWtcjpgdfZAhVIYK0KHVz1BVsQ6AEIeTAI#v=onepage&q=using%20flip%20with%20runge-kutta&f=false)
 		// (search key: "using FLIP with runge-kutta")
@@ -424,9 +434,9 @@ void FluidSim3::TransferParticlesToGrid(std::vector<Particle3> &particles) {
 	float* wAmts = new float[mX*mY*(mZ + 1)]();
 
 	// Clear velocity arrays
-	memset(m_MU, 0, (mX + 1)*mY*mZ);
-	memset(m_MV, 0, mX*(mY + 1)*mZ);
-	memset(m_MW, 0, mX*mY*(mZ + 1));
+	memset(m_MU, 0, sizeof(float)*(mX + 1)*mY*mZ);
+	memset(m_MV, 0, sizeof(float)*mX*(mY + 1)*mZ);
+	memset(m_MW, 0, sizeof(float)*mX*mY*(mZ + 1));
 
 	for (int i = 0; i < len; i++) {
 		// We have to assume that particles can be outside the grid for the moment :(
@@ -584,8 +594,8 @@ void FluidSim3::TransferParticlesToGrid(std::vector<Particle3> &particles) {
 	// W
 	for (int y = 0; y < mY; y++) {
 		for (int x = 0; x < mX; x++) {
-			vValid[x + mX*(y + mY*0)] = true;
-			vValid[x + mX*(y + mY*mX)] = true;
+			wValid[x + mX*(y + mY*0)] = true;
+			wValid[x + mX*(y + mY*mZ)] = true;
 		}
 	}
 
@@ -817,7 +827,6 @@ void FluidSim3::Project(float dt) {
 	int MN = mX*mY*mZ;
 	double* b = new double[MN];
 	double* p = new double[MN](); // should zero everything for us
-	odprintf("%f", *std::min_element(p, p + MN));
 	double* diagCoeffs = new double[MN];
 
 	// INDEXING: b[x,y,z] = b[x+mX*(y+mY*z)].
@@ -834,23 +843,20 @@ void FluidSim3::Project(float dt) {
 				double velYp = (y == mY - 1 ? solidVel : V(x, y + 1, z));
 				double velYm = (y == 0 ? solidVel : V(x, y, z));
 				double velZp = (z == mZ - 1 ? solidVel : W(x, y, z + 1));
-				double velZm = (z == 0 ? solidVel : W(x, y, z - 1));
+				double velZm = (z == 0 ? solidVel : W(x, y, z));
 				b[x + mX*(y+mY*z)] = scale*(velXp - velXm + velYp - velYm + velZp - velZm);
 			}
 		}
 	}
 
 	// TEMP DEBUG
-	for (int z = 0; z < mZ; z++) {
+	/*for (int z = 0; z < mZ; z++) {
 		for (int y = 0; y < mY; y++) {
 			for (int x = 0; x < mX; x++) {
 				Phi(x, y, z) = -1.0f; // everything is water
 			}
 		}
-	}
-
-	odprintf("bmin %f", *std::min_element(b, b + 4096));
-	odprintf("bmax %f", *std::max_element(b, b + 4096));
+	}*/
 
 	// Compute diagonal coefficients.
 	for (int z = 0; z < mZ; z++) {
@@ -920,11 +926,25 @@ void FluidSim3::Project(float dt) {
 	// (Note, interestingly, that in the last two cases this isn't even enough iterations
 	// for boundary conditions to reach the edges of the grid, yet it still manages an
 	// eventual convergence rate of 1/0.85!)
-	// TODO: Re-compute this constant for a 3D grid.
 
-	double omega = 1.0f;//2 - 3.22133 / mX;
+	// For a 3D grid with a dambreak scenario on the first frame and 100 iterations, 
+	// we wind up getting
+	// size    min omega    max divergence  L2 norm
+	// 16      1.808+-0.023 6.817e-07       0.000000
+	// 32      1.895        1.239e-05       0.000725
+	// 64      1.951        6.652e-03       0.979345
+	// Quadratically fitting this to a formula of the form 2-c/x, we get
+	// c = (2*3-1.808-1.895-1.951)/(1/16+1/32+1/64) = 3.16343
+	// check:               max divergence  L2 norm
+	// 2-3.16343/16 = 1.802 1.583e-08       0.000000
+	// 2-3.16343/32 = 1.901 3.807e-05       0.003555
+	// 2-3.16343/64 = 1.951 6.652e-03       0.979345
+	// This is really close to the 3.22133 we get for the 2D case
+	// in a different scenario!
 
-	int numIterations = 120;
+	double omega = 2 - 3.16343 / mX;
+
+	int numIterations = 100;
 
 	for (int iter = 0; iter < numIterations; iter++) {
 		for (int stage = 0; stage <= 1; stage++) {
@@ -933,9 +953,9 @@ void FluidSim3::Project(float dt) {
 					for (int x = 0; x < mX; x++) {
 						// Checkerboard iteration
 						if (((x + y + z) % 2) != stage) continue;
-						
+
 						// Gauss-Seidel update p[x,y].
-						int idx = x + mX*(y + mY*z);
+						int idx = x + mX * (y + mY * z);
 						double numNeighbors = diagCoeffs[idx];
 						double neighborMinusSum = 0;
 
@@ -944,42 +964,41 @@ void FluidSim3::Project(float dt) {
 
 						if (x != 0) {
 							if (Phi(x - 1, y, z) < 0.0f) {
-								neighborMinusSum -= p[idx-1];
+								neighborMinusSum -= p[idx - 1];
 							}
 						}
 						if (x != mX - 1) {
 							if (Phi(x + 1, y, z) < 0.0f) {
-								neighborMinusSum -= p[idx+1];
+								neighborMinusSum -= p[idx + 1];
 							}
 						}
 						if (y != 0) {
 							if (Phi(x, y - 1, z) < 0.0f) {
-								neighborMinusSum -= p[idx-mX];
+								neighborMinusSum -= p[idx - mX];
 							}
 						}
 						if (y != mY - 1) {
 							if (Phi(x, y + 1, z) < 0.0f) {
-								neighborMinusSum -= p[idx+mX];
+								neighborMinusSum -= p[idx + mX];
 							}
 						}
 						if (z != 0) {
 							if (Phi(x, y, z - 1) < 0.0f) {
-								neighborMinusSum -= p[idx - mX*mY];
+								neighborMinusSum -= p[idx - mX * mY];
 							}
 						}
 						if (z != mZ - 1) {
 							if (Phi(x, y, z + 1) < 0.0f) {
-								neighborMinusSum -= p[idx + mX*mY];
+								neighborMinusSum -= p[idx + mX * mY];
 							}
 						}
 
 						// Successive over-relaxation
-						p[idx] = (1 - omega)*p[idx] + omega*(b[idx] - neighborMinusSum) / numNeighbors;
+						p[idx] = (1 - omega)*p[idx] + omega * (b[idx] - neighborMinusSum) / numNeighbors;
 					}
 				}
 			}
 		}
-		//odprintf("%f", *std::min_element(p, p + 4096));
 	}
 
 	// Remove pressure from velocities
@@ -988,6 +1007,7 @@ void FluidSim3::Project(float dt) {
 	// In the case where {i,j} is water and {i+1,j} is air (and similarly for other cases):
 	// u_{i+1/2,j,k}^{n+1} = u_{i+1/2,j,k}+dt(1+clamp(-phi_{i+1,j,k}/phi_{i,j,k}))*p_{i,j,k}/(rho dx)
 	// Note that this does indeed have the right limiting behavior.
+
 
 	// Edges
 	SetEdgeVelocitiesToZero();
@@ -998,18 +1018,21 @@ void FluidSim3::Project(float dt) {
 	for (int z = 0; z < mZ; z++) {
 		for (int y = 0; y < mY; y++) {
 			for (int x = 0; x < mX - 1; x++) {
-				int idx = x + mX*(y + mY*z);
+				int idx = x + mX * (y + mY * z);
 				double phiL = Phi(x, y, z);
 				double phiR = Phi(x + 1, y, z);
 				// Four cases:
 				if (phiL < 0.0 && phiR < 0.0) {
-					U(x + 1, y, z) = (float)(U(x + 1, y, z) - scale*(p[idx+1] - p[idx]));
-				} else if (phiL < 0.0 && phiR >= 0.0) {
-					U(x + 1, y, z) = (float)(U(x + 1, y, z) + scale*(1 + MathHelper::Clamp(-phiR / phiL, 0.0, maxLSRatio))*p[idx]);
-				} else if (phiL >= 0.0 && phiR < 0.0) {
-					// I think this is right (...it seems to be?)
-					U(x + 1, y, z) = (float)(U(x + 1, y, z) + scale*(1 + MathHelper::Clamp(-phiL / phiR, 0.0, maxLSRatio))*p[idx+1]);
-				} else {
+					U(x + 1, y, z) = (float)(U(x + 1, y, z) - scale * (p[idx + 1] - p[idx]));
+				}
+				else if (phiL < 0.0 && phiR >= 0.0) {
+					U(x + 1, y, z) = (float)(U(x + 1, y, z) + scale * (1 + MathHelper::Clamp(-phiR / phiL, 0.0, maxLSRatio))*p[idx]);
+				}
+				else if (phiL >= 0.0 && phiR < 0.0) {
+					// I think this is right (...it seems to be?) (It was not.)
+					U(x + 1, y, z) = (float)(U(x + 1, y, z) - scale * (1 + MathHelper::Clamp(-phiL / phiR, 0.0, maxLSRatio))*p[idx + 1]);
+				}
+				else {
 					// In air
 					U(x + 1, y, z) = 0;
 				}
@@ -1020,16 +1043,19 @@ void FluidSim3::Project(float dt) {
 	for (int z = 0; z < mZ; z++) {
 		for (int y = 0; y < mY - 1; y++) {
 			for (int x = 0; x < mX; x++) {
-				int idx = x + mX*(y + mY*z);
+				int idx = x + mX * (y + mY * z);
 				double phiD = Phi(x, y, z);
 				double phiU = Phi(x, y + 1, z);
 				if (phiD < 0.0 && phiU < 0.0) {
-					V(x, y + 1, z) = (float)(V(x, y + 1, z) - scale*(p[idx+mX] - p[idx]));
-				} else if (phiD < 0.0 && phiU >= 0.0) {
-					V(x, y + 1, z) = (float)(V(x, y + 1, z) + scale*(1 + MathHelper::Clamp(-phiU / phiD, 0.0, maxLSRatio))*p[idx]);
-				} else if (phiD >= 0.0 && phiU < 0.0) {
-					V(x, y + 1, z) = (float)(V(x, y + 1, z) + scale*(1 + MathHelper::Clamp(-phiD / phiU, 0.0, maxLSRatio))*p[idx+mX]);
-				} else {
+					V(x, y + 1, z) = (float)(V(x, y + 1, z) - scale * (p[idx + mX] - p[idx]));
+				}
+				else if (phiD < 0.0 && phiU >= 0.0) {
+					V(x, y + 1, z) = (float)(V(x, y + 1, z) + scale * (1 + MathHelper::Clamp(-phiU / phiD, 0.0, maxLSRatio))*p[idx]);
+				}
+				else if (phiD >= 0.0 && phiU < 0.0) {
+					V(x, y + 1, z) = (float)(V(x, y + 1, z) - scale * (1 + MathHelper::Clamp(-phiD / phiU, 0.0, maxLSRatio))*p[idx + mX]);
+				}
+				else {
 					V(x, y + 1, z) = 0;
 				}
 			}
@@ -1039,26 +1065,77 @@ void FluidSim3::Project(float dt) {
 	for (int z = 0; z < mZ - 1; z++) {
 		for (int y = 0; y < mY; y++) {
 			for (int x = 0; x < mX; x++) {
-				int idx = x + mX*(y + mY*z);
+				int idx = x + mX * (y + mY * z);
 				double phiD = Phi(x, y, z);
 				double phiU = Phi(x, y, z + 1);
 				if (phiD < 0.0 && phiU < 0.0) {
-					V(x, y, z + 1) = (float)(V(x, y, z + 1) - scale*(p[idx + mX*mY] - p[idx]));
-				} else if (phiD < 0.0 && phiU >= 0.0) {
-					V(x, y, z + 1) = (float)(V(x, y, z + 1) + scale*(1 + MathHelper::Clamp(-phiU / phiD, 0.0, maxLSRatio))*p[idx]);
-				} else if (phiD >= 0.0 && phiU < 0.0) {
-					V(x, y, z + 1) = (float)(V(x, y, z + 1) + scale*(1 + MathHelper::Clamp(-phiD / phiU, 0.0, maxLSRatio))*p[idx + mX*mY]);
-				} else {
-					V(x, y, z + 1) = 0;
+					W(x, y, z + 1) = (float)(W(x, y, z + 1) - scale * (p[idx + mX * mY] - p[idx]));
+				}
+				else if (phiD < 0.0 && phiU >= 0.0) {
+					W(x, y, z + 1) = (float)(W(x, y, z + 1) + scale * (1 + MathHelper::Clamp(-phiU / phiD, 0.0, maxLSRatio))*p[idx]);
+				}
+				else if (phiD >= 0.0 && phiU < 0.0) {
+					W(x, y, z + 1) = (float)(W(x, y, z + 1) - scale * (1 + MathHelper::Clamp(-phiD / phiU, 0.0, maxLSRatio))*p[idx + mX * mY]);
+				}
+				else {
+					W(x, y, z + 1) = 0;
 				}
 			}
 		}
 	}
 	// end (modifies internal state).
 
+	// odprintf("%f", omega);
+	// PrintDivergence(); //<- this may only give accurate results if Phi<0 for all x, y, and z
+
 	delete[] b;
 	delete[] p;
 	delete[] diagCoeffs;
+}
+
+void FluidSim3::PrintDivergence() {
+	// DEBUG CODE
+	// Measure the divergence of the resulting vector field.
+	// After enough iterations, this should be 0.
+	// In practice...
+	double l2Sum = 0.0;
+	double maxDivergence = 0.0;
+	int mdX, mdY, mdZ;
+	float* divs = new float[mX*mY*mZ];
+
+	for (int z = 0; z < mZ; z++) {
+		for (int y = 0; y < mY; y++) {
+			for (int x = 0; x < mX; x++) {
+				if (Phi(x, y, z) >= 0.0) {
+					divs[x + mX * (y + mY * z)] = 0;
+				}
+				else {
+					// don't forget - it's a y-up coordinate system!
+					float velUp = V(x, y + 1, z);
+					float velDown = V(x, y, z);
+					float velLeft = U(x, y, z);
+					float velRight = U(x + 1, y, z);
+					float velFwds = W(x, y, z + 1);
+					float velBkwds = W(x, y, z);
+					float div = velUp - velDown + velRight - velLeft + velFwds - velBkwds;
+					divs[x + mX * (y + mY * z)] = div;
+					if (div > maxDivergence) {
+						mdX = x;
+						mdY = y;
+						mdZ = z;
+						maxDivergence = div;
+					}
+					l2Sum += div * div;
+				}
+			}
+		}
+	}
+
+	odprintf("L2 norm of divergence was %lf.", sqrt(l2Sum));
+	odprintf("Maximum divergence was    %.3e", maxDivergence);
+	odprintf("which was at {%i, %i, %i}.", mdX, mdY, mdZ);
+
+	delete[] divs;
 }
 
 void FluidSim3::SetEdgeVelocitiesToZero() {

@@ -6,7 +6,7 @@
 #include <fstream>
 #include <string>
 
-#include "Simulation.h"
+#include "Simulation2D.h"
 #include "Simulation3D.h"
 
 // DEBUG QQQ
@@ -48,6 +48,28 @@ void exportArray(const char* filename, int* ar, int sizeX, int sizeY) {
 			}
 		}
 		if (y != sizeY - 1) {
+			myfile << '\n';
+		}
+	}
+
+	myfile.close();
+}
+
+void exportArrayYSlice(const char* filename, float* ar, int yLayer, int sizeX, int sizeY, int sizeZ) {
+	std::ofstream myfile;
+	myfile.open(filename);
+
+	// Stretch goal: Save floats in hexfloat format
+	// for lossless passing between applications
+
+	for (int z = 0; z < sizeZ; z++) {
+		for (int x = 0; x < sizeX; x++) {
+			myfile << (double)ar[x + sizeX * (yLayer + sizeY * z)];
+			if (x != sizeX - 1) {
+				myfile << '\t';
+			}
+		}
+		if (z != sizeZ - 1) {
 			myfile << '\n';
 		}
 	}

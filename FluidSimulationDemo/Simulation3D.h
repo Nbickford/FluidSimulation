@@ -55,6 +55,8 @@ private:
 	void AddBodyForces(float dt);
 	void Project(float dt);
 	void SetEdgeVelocitiesToZero();
+
+	void PrintDivergence();
 private:
 	// Looks up points in their respective MAC grids.
 	// See Bridson, 2nd Ed., p.25.
@@ -105,9 +107,9 @@ private:
 		// Trilinear interpolation for u
 		// We basically just trilinearly interpolate (eI, J) on the MAC U grid.
 		// Interpolate along i
-		float t00 = MathHelper::Lerp(U(iEI, iJ, iK), U(iEI + 1, iJ, iK), fEI);
-		float t10 = MathHelper::Lerp(U(iEI, iJ + 1, iK), U(iEI + 1, iJ + 1, iK), fEI);
-		float t01 = MathHelper::Lerp(U(iEI, iJ, iK + 1), U(iEI + 1, iJ, iK + 1), fEI);
+		float t00 = MathHelper::Lerp(U(iEI, iJ,     iK),     U(iEI + 1, iJ,     iK),     fEI);
+		float t10 = MathHelper::Lerp(U(iEI, iJ + 1, iK),     U(iEI + 1, iJ + 1, iK),     fEI);
+		float t01 = MathHelper::Lerp(U(iEI, iJ,     iK + 1), U(iEI + 1, iJ,     iK + 1), fEI);
 		float t11 = MathHelper::Lerp(U(iEI, iJ + 1, iK + 1), U(iEI + 1, iJ + 1, iK + 1), fEI);
 
 		// Interpolate along j
@@ -119,26 +121,26 @@ private:
 
 		// OK! Now that you've got the hang of it, here's trilinear interpolation for v.
 		// Interpolate (I, eJ) on the MAC V grid.
-		t00 = MathHelper::Lerp(V(iI, iEJ, iK), V(iI + 1, iEJ, iK), fI);
-		t10 = MathHelper::Lerp(V(iI, iEJ + 1, iK), V(iI + 1, iEJ + 1, iK), fI);
-		t01 = MathHelper::Lerp(V(iI, iEJ, iK + 1), V(iI, iEJ, iK + 1), fI);
-		t11 = MathHelper::Lerp(V(iI, iEJ + 1, iK + 1), V(iI, iEJ + 1, iK + 1), fI);
+		t00 = MathHelper::Lerp(V(iI, iEJ,     iK),     V(iI + 1, iEJ,     iK),     fI);
+		t10 = MathHelper::Lerp(V(iI, iEJ + 1, iK),     V(iI + 1, iEJ + 1, iK),     fI);
+		t01 = MathHelper::Lerp(V(iI, iEJ,     iK + 1), V(iI + 1, iEJ,     iK + 1), fI);
+		t11 = MathHelper::Lerp(V(iI, iEJ + 1, iK + 1), V(iI + 1, iEJ + 1, iK + 1), fI);
 
 		tx0 = MathHelper::Lerp(t00, t10, fEJ);
 		tx1 = MathHelper::Lerp(t01, t11, fEJ);
 
-		float vFinal = MathHelper::Lerp(tx0, tx1, fJ);
+		float vFinal = MathHelper::Lerp(tx0, tx1, fK);
 
 		// Interpolate (I, J, eK) on the MAC W grid.
-		t00 = MathHelper::Lerp(W(iI, iJ, iEK), V(iI + 1, iJ, iEK), fI);
-		t10 = MathHelper::Lerp(W(iI, iJ + 1, iEK), V(iI + 1, iJ + 1, iEK), fI);
-		t01 = MathHelper::Lerp(W(iI, iJ, iEK + 1), W(iI + 1, iJ, iEK + 1), fI);
+		t00 = MathHelper::Lerp(W(iI, iJ,     iEK),     W(iI + 1, iJ,     iEK),     fI);
+		t10 = MathHelper::Lerp(W(iI, iJ + 1, iEK),     W(iI + 1, iJ + 1, iEK),     fI);
+		t01 = MathHelper::Lerp(W(iI, iJ,     iEK + 1), W(iI + 1, iJ,     iEK + 1), fI);
 		t11 = MathHelper::Lerp(W(iI, iJ + 1, iEK + 1), W(iI + 1, iJ + 1, iEK + 1), fI);
 
 		tx0 = MathHelper::Lerp(t00, t10, fJ);
 		tx1 = MathHelper::Lerp(t01, t11, fJ);
 
-		float wFinal = MathHelper::Lerp(tx0, tx1, fEJ);
+		float wFinal = MathHelper::Lerp(tx0, tx1, fEK);
 
 		return XMFLOAT3(uFinal, vFinal, wFinal);
 	}
@@ -162,7 +164,7 @@ private:
 	float m_nu = 8.90f*1e-4f / 1000.0f; //(=dynamic viscosity/density, both of which are constant) 
 
 										// Particle radius
-	float m_pRadius = 2 / sqrtf(2.0f); // Needs to be at least sqrt(2)/2 to avoid particles
+	float m_pRadius = 1.0f; // Needs to be at least sqrt(3)/2 to avoid particles
 									   // getting stuck between cells classified as air
 
 	// MAC velocity grids.

@@ -27,9 +27,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="FluidSimDemo.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\Common\d3dApp.cpp">
       <Filter>Common</Filter>
     </ClCompile>
@@ -51,13 +48,22 @@
     <ClCompile Include="..\Libraries\DirectXTK\pch.cpp">
       <Filter>Libraries</Filter>
     </ClCompile>
-    <ClCompile Include="Simulation.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="Simulation3D.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="FluidSimDemoOld.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FluidSimDemoOld3D.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="FluidSimDemo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation2D.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -107,13 +113,16 @@
     <ClInclude Include="..\Libraries\DirectXTK\PlatformHelpers.h">
       <Filter>Libraries</Filter>
     </ClInclude>
-    <ClInclude Include="Simulation.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
     <ClInclude Include="debugroutines.h">
       <Filter>Common</Filter>
     </ClInclude>
     <ClInclude Include="Simulation3D.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation2D.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>

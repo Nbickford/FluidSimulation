@@ -12,7 +12,7 @@
 void __cdecl odprintf(const char *format, ...);
 
 #ifdef DX11_ODPRINTF_IMPLEMENTATION
-#if defined(DEBUG) | defined(_DEBUG)
+#if defined(DEBUG) | defined(_DEBUG) | 1
 void __cdecl odprintf(const char *format, ...)
 {
 	char    buf[4096], *p = buf;
