@@ -11,29 +11,8 @@
 
 #include <vector>
 #include "MathHelper.h"
+#include "ParticleDefs.h"
 using namespace DirectX;
-
-// Represents a fluid particle.
-struct Particle {
-	// Positions in real-world units (meters)
-	float X;
-	float Y;
-	// Velocity in real-world units (m/s)
-	float uX;
-	float uY;
-
-	Particle()
-		:X(0.f), Y(0.f), uX(0.f), uY(0.f) {
-	}
-
-	Particle(float px, float py, XMFLOAT2 vel)
-	:X(px), Y(py), uX(vel.x), uY(vel.y){
-	}
-
-	Particle(float px, float py, float ux, float uy)
-		:X(px), Y(py), uX(ux), uY(uy) {
-	}
-};
 
 // Represents the current state of a fluid simulation.
 class FluidSim {

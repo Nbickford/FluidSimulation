@@ -125,6 +125,9 @@
     <ClInclude Include="Simulation.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="ParticleDefs.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="FX\color.fx">
@@ -137,6 +140,9 @@
       <Filter>FX</Filter>
     </FxCompile>
     <FxCompile Include="FX\DebugPointsQuads.fx">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpAdvect.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
   </ItemGroup>

@@ -1,6 +1,6 @@
 //************************************************************
 // Simulation3D.h
-// Top level of code for doing 3D fluid simulation on the CPU.
+// Top level of code for doing GPU-based 3D fluid simulation.
 //
 // Authors:
 //   Neil Bickford
@@ -11,42 +11,39 @@
 
 #include <vector>
 #include "MathHelper.h"
+#include "d3dUtil.h"
+#include "ParticleDefs.h"
+#include "FX11\d3dx11effect.h"
 using namespace DirectX;
-
-// Represents a fluid particle.
-struct Particle3 {
-	// Positions in real-world units (meters)
-	float X;
-	float Y;
-	float Z;
-	// Velocity in real-world units (m/s)
-	float uX;
-	float uY;
-	float uZ;
-
-	Particle3()
-		:X(0.f), Y(0.f), Z(0.f), uX(0.f), uY(0.f), uZ(0.f) {
-	}
-
-	Particle3(float px, float py, float pz, XMFLOAT3 vel)
-		:X(px), Y(py), Z(pz), uX(vel.x), uY(vel.y), uZ(vel.z) {
-	}
-
-	Particle3(float px, float py, float pz, float ux, float uy, float uz)
-		:X(px), Y(py), Z(pz), uX(ux), uY(uy), uZ(uz) {
-	}
-};
 
 // Represents the current state of a fluid simulation.
 class GPFluidSim {
 public:
 	GPFluidSim(int xSize, int ySize, int zSize, float CellsPerMeter);
+	void Initialize(ID3D11Device* device, ID3D11DeviceContext* immediateContext);
 	~GPFluidSim();
 	void ResetSimulation();
 
 	void Simulate(float dt);
 private:
+	// GPU resource acquisition and destruction
+	void AcquireResources();
+public:
+	void ReleaseResources();
+private:
+	void CreateTexture3D(ID3D11Texture3D** texPtr, int width, int height, int depth, bool staging=false);
+	void CreateStructuredBuffer(ID3D11Buffer** bfrPtr, int stride, int numElements, bool staging=false);
+	void Create3DSRV(ID3D11Texture3D* texPtr, ID3D11ShaderResourceView** srvPtr);
+	void CreateStructuredBufferSRV(ID3D11Buffer* bfrPtr, ID3D11ShaderResourceView** srvPtr, int numElements);
+	void Create3DUAV(ID3D11Texture3D* texPtr, ID3D11UnorderedAccessView** uavPtr, int wSize);
+	void CreateStructuredBufferUAV(ID3D11Buffer* bfrPtr, ID3D11UnorderedAccessView** uavPtr, int numElements);
+	//void CompileAndCreateEffect(const std::wstring& filename, ID3DX11Effect** mFX);
+	void CompileAndCreateCS(const std::wstring& filename, ID3D11ComputeShader** mFX);
+
+	void UploadParticles(ID3D11Buffer* bfrPtr);
+private:
 	void Advect(std::vector<Particle3> &particles, float dt);
+	void AdvectGPU(float dt);
 	float ptDistance(float x0, float y0, float z0, float x1, float y1, float z1);
 	void clsInner(int dx, int dy, int dz, int x, int y, int z, int* closestParticles);
 	void ComputeLevelSet(const std::vector<Particle3> &particles);
@@ -179,6 +176,41 @@ private:
 	// Level set (sampled at point centers, size mX*mY)
 	// Note: = DISTANCE IN GRID CELLS
 	float* m_Phi;
+
+private:
+	// GPU resources and devices
+	ID3D11Device* md3dDevice;
+	ID3D11DeviceContext* md3dImmediateContext;
+
+	ID3D11Texture3D* m_gpU;
+	ID3D11Texture3D* m_gpV;
+	ID3D11Texture3D* m_gpW;
+	ID3D11ShaderResourceView* m_gpUSRV;
+	ID3D11ShaderResourceView* m_gpVSRV;
+	ID3D11ShaderResourceView* m_gpWSRV;
+	ID3D11UnorderedAccessView* m_gpUUAV;
+	ID3D11UnorderedAccessView* m_gpVUAV;
+	ID3D11UnorderedAccessView* m_gpWUAV;
+
+	// Structured buffer; layout consists of consecutive Particle3s.
+	ID3D11Buffer* m_gpParticles;
+	ID3D11ShaderResourceView* m_gpParticlesSRV;
+	ID3D11UnorderedAccessView* m_gpParticlesUAV;
+
+	// BACKBUFFERS
+	ID3D11Buffer* m_gpParticlesTarget;
+	ID3D11ShaderResourceView* m_gpParticlesTargetSRV;
+	ID3D11UnorderedAccessView* m_gpParticlesTargetUAV;
+
+	// EFFECTS
+	ID3D11ComputeShader* m_gpAdvectFX;
+
+	// TEMPORARY (STAGING) BUFFERS
+	// Use this for debugging GPU shaders.
+	ID3D11Buffer* m_gpTemp;
+
+	// SAMPLER STATES
+	ID3D11SamplerState* m_gpLinearSampler;
 
 public: // For visualization, for the moment - we could of course execute rendering commands from here though
 		// List of particles

@@ -141,6 +141,8 @@ BoxApp::BoxApp(HINSTANCE hInstance)
 
 // Destructor
 BoxApp::~BoxApp() {
+	fluidSim.ReleaseResources();
+
 	ReleaseCOM(mQuadVB);
 	ReleaseCOM(mQuadIB);
 	ReleaseCOM(mPointVB);
@@ -164,6 +166,8 @@ bool BoxApp::Init() {
 	if (!D3DApp::Init()) {
 		return false;
 	}
+
+	fluidSim.Initialize(md3dDevice, md3dImmediateContext);
 
 	BuildGeometryBuffers();
 	BuildFX();

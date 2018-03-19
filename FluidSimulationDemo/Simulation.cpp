@@ -16,9 +16,11 @@
 
 //#include "debugroutines.h" TODO: Implement stb-like single-header library properly
 
+// Don't forget to call Initialize after this!
 GPFluidSim::GPFluidSim(int xSize, int ySize, int zSize, float CellsPerMeter)
 	:mX(xSize), mY(ySize), mZ(zSize), m_CellsPerMeter(CellsPerMeter),
 	m_particles() {
+
 	// Set up MAC velocity grids and initialize velocities
 	m_MU = new float[(xSize + 1)*ySize*zSize];
 	m_MV = new float[xSize*(ySize + 1)*zSize];
@@ -26,17 +28,230 @@ GPFluidSim::GPFluidSim(int xSize, int ySize, int zSize, float CellsPerMeter)
 
 	// Level sets and auxiliary fields
 	m_Phi = new float[xSize*ySize*zSize];
-
-	ResetSimulation();
 }
 
 GPFluidSim::~GPFluidSim() {
+	ReleaseResources();
 	m_particles.clear();
 	delete[] m_MU;
 	delete[] m_MV;
 	delete[] m_MW;
 	delete[] m_Phi;
 }
+
+void GPFluidSim::Initialize(ID3D11Device* device,
+	ID3D11DeviceContext* immediateContext) {
+	md3dDevice = device;
+	md3dImmediateContext = immediateContext;
+
+	AcquireResources();
+
+	ResetSimulation();
+}
+
+void GPFluidSim::AcquireResources() {
+	// Velocity fields
+
+	// Texture3D acquisition
+
+	// Velocity arrays
+	CreateTexture3D(&m_gpU, mX + 1, mY, mZ);
+	CreateTexture3D(&m_gpV, mX, mY + 1, mZ);
+	CreateTexture3D(&m_gpW, mX, mY, mZ + 1);
+	Create3DSRV(m_gpU, &m_gpUSRV);
+	Create3DSRV(m_gpV, &m_gpVSRV);
+	Create3DSRV(m_gpW, &m_gpWSRV);
+	Create3DUAV(m_gpU, &m_gpUUAV, mZ);
+	Create3DUAV(m_gpV, &m_gpVUAV, mZ);
+	Create3DUAV(m_gpW, &m_gpWUAV, mZ+1); // yes indeed
+
+	// Particles
+	// Problem: To fit this, we'll ideally need to know the number of particles
+	// we'll be using ahead of time. For the moment, we'll do this by using the
+	// theoretical maximum. In theory, this could be fixed by more closely tying
+	// together resource acquisition and initialization.
+	int maxParticles = 8 * mX*mY*mZ;
+	CreateStructuredBuffer(&m_gpParticles, sizeof(Particle3), maxParticles);
+	CreateStructuredBufferSRV(m_gpParticles, &m_gpParticlesSRV, maxParticles);
+	CreateStructuredBufferUAV(m_gpParticles, &m_gpParticlesUAV, maxParticles);
+
+	// Backbuffers
+	CreateStructuredBuffer(&m_gpParticlesTarget, sizeof(Particle3), maxParticles);
+	CreateStructuredBufferSRV(m_gpParticlesTarget, &m_gpParticlesTargetSRV, maxParticles);
+	CreateStructuredBufferUAV(m_gpParticlesTarget, &m_gpParticlesTargetUAV, maxParticles);
+
+	// Staging buffers
+	CreateStructuredBuffer(&m_gpTemp, sizeof(Particle3), maxParticles, true);
+
+	// Sampler states
+	D3D11_SAMPLER_DESC samplerDesc;
+	samplerDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+	samplerDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	samplerDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+	samplerDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	samplerDesc.MipLODBias = 0.0f;
+	samplerDesc.MaxAnisotropy = 1;
+	samplerDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+	samplerDesc.MinLOD = -FLT_MAX;
+	samplerDesc.MaxLOD = FLT_MAX;
+	md3dDevice->CreateSamplerState(&samplerDesc, &m_gpLinearSampler);
+
+	//---------------------------------
+	// KERNELS
+	//---------------------------------
+	CompileAndCreateCS(L"FX\\gpAdvect.hlsl", &m_gpAdvectFX);
+}
+
+void GPFluidSim::ReleaseResources() {
+	ReleaseCOM(m_gpTemp);
+
+	ReleaseCOM(m_gpAdvectFX);
+
+	ReleaseCOM(m_gpParticlesTargetUAV);
+	ReleaseCOM(m_gpParticlesTargetSRV);
+	ReleaseCOM(m_gpParticlesTarget);
+
+	ReleaseCOM(m_gpParticlesUAV);
+	ReleaseCOM(m_gpParticlesSRV);
+	ReleaseCOM(m_gpParticles);
+
+	ReleaseCOM(m_gpWUAV);
+	ReleaseCOM(m_gpVUAV);
+	ReleaseCOM(m_gpUUAV);
+	ReleaseCOM(m_gpWSRV);
+	ReleaseCOM(m_gpVSRV);
+	ReleaseCOM(m_gpUSRV);
+	ReleaseCOM(m_gpW);
+	ReleaseCOM(m_gpV);
+	ReleaseCOM(m_gpU);
+}
+
+/// <summary>Creates a new empty float-based (RW) Texture3D resource on the GPU.</summary>
+/// <param name="width">X dimension of the texture to create</param>
+/// <param name="height">Y dimension of the texture to create</param>
+/// <param name="depth">Z dimension of the texture to create</param>
+void GPFluidSim::CreateTexture3D(ID3D11Texture3D** texPtr, int width, int height, int depth, bool staging) {
+	// Reference page: https://msdn.microsoft.com/en-us/library/windows/desktop/ff476254(v=vs.85).aspx
+
+	D3D11_TEXTURE3D_DESC texDesc;
+	texDesc.Width = width;
+	texDesc.Height = height;
+	texDesc.Depth = depth;
+	texDesc.MipLevels = 1; // no mipmapping
+	texDesc.Format = DXGI_FORMAT_R32_FLOAT;
+	// default: gpu rw; can technically write from cpu using UpdateSubresource
+	texDesc.Usage = (staging?D3D11_USAGE_STAGING:D3D11_USAGE_DEFAULT);
+	texDesc.BindFlags = (staging?0:D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS);
+	texDesc.CPUAccessFlags = (staging ? D3D11_CPU_ACCESS_READ : 0); // default: we'll use UpdateSubresource
+	texDesc.MiscFlags = 0;
+
+	HR(md3dDevice->CreateTexture3D(&texDesc, 0, texPtr));
+}
+
+/// <summary>Creates a (RW) structured buffer with a given stride and number of elements.</summary>
+/// <param name="stride">The size of each data element.</param>
+/// <param name="numElements">The number of elements in the structured buffer.</param>
+void GPFluidSim::CreateStructuredBuffer(ID3D11Buffer** bfrPtr, int stride, int numElements, bool staging) {
+	// Reference page: https://msdn.microsoft.com/en-us/library/windows/desktop/ff476092(v=vs.85).aspx
+
+	D3D11_BUFFER_DESC bfrDesc;
+	bfrDesc.ByteWidth = stride * numElements; // total size of the buffer
+	bfrDesc.Usage = (staging?D3D11_USAGE_STAGING:D3D11_USAGE_DEFAULT); // gpu rw, cpu UpdateSubresource
+	bfrDesc.BindFlags = (staging?0:D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS);
+	bfrDesc.CPUAccessFlags = (staging ? D3D11_CPU_ACCESS_READ : 0);
+	bfrDesc.StructureByteStride = stride;
+	bfrDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+
+	HR(md3dDevice->CreateBuffer(&bfrDesc, 0, bfrPtr));
+}
+
+// Creates a shader resource view for a 3D float-based texture.
+void GPFluidSim::Create3DSRV(ID3D11Texture3D* texPtr, ID3D11ShaderResourceView** srvPtr) {
+	// Reference page: https://msdn.microsoft.com/en-us/library/windows/desktop/ff476211(v=vs.85).aspx
+	
+	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+	srvDesc.Format = DXGI_FORMAT_R32_FLOAT;
+	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE3D;
+	srvDesc.Texture3D.MipLevels = 1;
+	srvDesc.Texture3D.MostDetailedMip = 0;
+
+	HR(md3dDevice->CreateShaderResourceView(texPtr, &srvDesc, srvPtr));
+}
+
+// Creates a shader resource view for a structured buffer.
+// numElements: the number of data elements in the buffer.
+void GPFluidSim::CreateStructuredBufferSRV(ID3D11Buffer* bfrPtr, ID3D11ShaderResourceView** srvPtr, int numElements) {
+	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+	srvDesc.Format = DXGI_FORMAT_UNKNOWN; // Since it's a structured buffer
+	srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+	srvDesc.BufferEx.FirstElement = 0;
+	srvDesc.BufferEx.NumElements = numElements;
+	srvDesc.BufferEx.Flags = 0;
+
+	HR(md3dDevice->CreateShaderResourceView(bfrPtr, &srvDesc, srvPtr));
+}
+
+// Creates an unordered access view for a 3D float-based texture.
+// wSize: the depth (z dimension size) of the texture.
+void GPFluidSim::Create3DUAV(ID3D11Texture3D* texPtr, ID3D11UnorderedAccessView** uavPtr, int wSize) {
+	// For more information on why we need to specify the depth of the texture,
+	// see Zink, Pettineo, and Hoxley's "Practical Rendering and Computation with Direct3D 11", page 101.
+	
+	D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc;
+	uavDesc.Format = DXGI_FORMAT_R32_FLOAT;
+	uavDesc.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
+	uavDesc.Texture3D.MipSlice = 0;
+	uavDesc.Texture3D.FirstWSlice = 0;
+	uavDesc.Texture3D.WSize = wSize;
+
+	HR(md3dDevice->CreateUnorderedAccessView(texPtr, &uavDesc, uavPtr));
+}
+
+// Creates an unordered access view for a structured buffer.
+// numElements: the number of data elements in the buffer.
+void GPFluidSim::CreateStructuredBufferUAV(ID3D11Buffer* bfrPtr, ID3D11UnorderedAccessView** uavPtr, int numElements) {
+	
+	D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc;
+	uavDesc.Format = DXGI_FORMAT_UNKNOWN; // because it's a structured buffer
+	uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+	uavDesc.Buffer.FirstElement = 0;
+	uavDesc.Buffer.NumElements = numElements;
+	uavDesc.Buffer.Flags = 0;
+
+	HR(md3dDevice->CreateUnorderedAccessView(bfrPtr, &uavDesc, uavPtr));
+}
+
+/// <summary>Uploads the particles in m_particles to the buffer pointed
+/// to by bfrPtr (which must be 6*8*mX*mY*mZ floats in size).</summary>
+void GPFluidSim::UploadParticles(ID3D11Buffer* bfrPtr) {
+	int len = m_particles.size();
+	int buffSize = 6 * 8 * mX*mY*mZ;
+	assert(6 * len < buffSize);
+	float* tmpParticles = new float[buffSize];
+	for (int i = 0; i < len; i++) {
+		tmpParticles[6 * i + 0] = m_particles[i].X;
+		tmpParticles[6 * i + 1] = m_particles[i].Y;
+		tmpParticles[6 * i + 2] = m_particles[i].Z;
+		tmpParticles[6 * i + 3] = m_particles[i].uX;
+		tmpParticles[6 * i + 4] = m_particles[i].uY;
+		tmpParticles[6 * i + 5] = m_particles[i].uZ;
+	}
+	md3dImmediateContext->UpdateSubresource(m_gpParticles, 0, 0,
+		reinterpret_cast<const void*>(tmpParticles),
+		sizeof(float)*buffSize, sizeof(float)*buffSize);
+	delete[] tmpParticles;
+}
+
+void GPFluidSim::CompileAndCreateCS(const std::wstring& filename, ID3D11ComputeShader** mFX) {
+	ID3DBlob* compiledShader = d3dUtil::CompileShader(filename, nullptr, "main", "cs_5_0");
+
+	HR(md3dDevice->CreateComputeShader(compiledShader->GetBufferPointer(),
+		compiledShader->GetBufferSize(), NULL, mFX));
+
+	// Done with the compiled shader.
+	ReleaseCOM(compiledShader);
+}
+
 
 void GPFluidSim::ResetSimulation() {
 	// TODO: the scale on this for vectorCurl is incorrect
@@ -96,6 +311,21 @@ void GPFluidSim::ResetSimulation() {
 			}
 		}
 	}
+
+	// Update GPU resources
+	md3dImmediateContext->UpdateSubresource(m_gpU, 0, 0,
+		reinterpret_cast<const void*>(m_MU),
+		sizeof(float)*(mX + 1), sizeof(float)*(mX + 1)*mY);
+
+	md3dImmediateContext->UpdateSubresource(m_gpV, 0, 0,
+		reinterpret_cast<const void*>(m_MV),
+		sizeof(float)*mX, sizeof(float)*mX*(mY+1));
+
+	md3dImmediateContext->UpdateSubresource(m_gpW, 0, 0,
+		reinterpret_cast<const void*>(m_MW),
+		sizeof(float)*mX, sizeof(float)*mX*mY);
+
+	UploadParticles(m_gpParticles);
 }
 
 void GPFluidSim::Simulate(float dt) {
@@ -107,7 +337,7 @@ void GPFluidSim::Simulate(float dt) {
 	static int frame = 0;
 	frame++;
 
-	Advect(m_particles, dt);
+	AdvectGPU(dt);
 
 	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
 	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
@@ -195,12 +425,9 @@ void GPFluidSim::Advect(std::vector<Particle3> &particles, float dt) {
 
 	// Set to false to use interpolate and the computed MAC grids
 	int len = (int)particles.size();
-	int di = 272;
-	if (particles[di].Y > 15.0f / 16.0f) {
-		odprintf("{%f, %f, %f}", particles[di].uX, particles[di].uY, particles[di].uZ);
-	}
+	int di = 778;
 	for (int i = 0; i < len; i++) {
-		if (i == di && particles[di].Y > 15.0f / 16.0f) {
+		if (i == di) {
 			odprintf("hey");
 		}
 		// This was surprisingly difficult to find, but according to an article in GPU Gems 5
@@ -229,6 +456,58 @@ void GPFluidSim::Advect(std::vector<Particle3> &particles, float dt) {
 		particles[i].Y = MathHelper::Clamp(particles[i].Y, (-0.5f + eps) / mY, 1.0f + (-0.5f - eps) / mY);
 		particles[i].Z = MathHelper::Clamp(particles[i].Z, (-0.5f + eps) / mZ, 1.0f + (-0.5f - eps) / mZ);
 	}
+}
+
+void GPFluidSim::AdvectGPU(float dt) {
+	// Right now, we just ignore dt.
+	UploadParticles(m_gpParticles);
+	// Set inputs and targets for compute shader
+	md3dImmediateContext->CSSetShader(m_gpAdvectFX, NULL, 0);
+	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpUSRV);
+	md3dImmediateContext->CSSetShaderResources(1, 1, &m_gpVSRV);
+	md3dImmediateContext->CSSetShaderResources(2, 1, &m_gpWSRV);
+	md3dImmediateContext->CSSetShaderResources(3, 1, &m_gpParticlesSRV);
+	// Targets
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpParticlesTargetUAV, NULL);
+	// Samplers
+	md3dImmediateContext->CSSetSamplers(0, 1, &m_gpLinearSampler);
+	// Run shader
+	md3dImmediateContext->Dispatch((m_particles.size() + 63) / 64, 1, 1);
+	// Run CPU version
+	Advect(m_particles, 0.01f);
+	// Compare results? Reference: Luna, v. 11, pg. 443-444
+	md3dImmediateContext->CopyResource(m_gpTemp, m_gpParticlesTarget);
+	D3D11_MAPPED_SUBRESOURCE mappedData;
+	md3dImmediateContext->Map(m_gpTemp, 0, D3D11_MAP_READ, 0, &mappedData);
+	Particle3* dataView = reinterpret_cast<Particle3*>(mappedData.pData);
+
+	float maxDiff=0.0f;
+	int maxInd=-1;
+	for (int i = 0; i < m_particles.size(); i++) {
+		float m2 =        fabsf(m_particles[i].X - dataView[i].X);
+		m2 = std::max(m2, fabsf(m_particles[i].Y - dataView[i].Y));
+		m2 = std::max(m2, fabsf(m_particles[i].Z - dataView[i].Z));
+		m2 = std::max(m2, fabsf(m_particles[i].uX - dataView[i].uX));
+		m2 = std::max(m2, fabsf(m_particles[i].uY - dataView[i].uY));
+		m2 = std::max(m2, fabsf(m_particles[i].uZ - dataView[i].uZ));
+		if (m2 > maxDiff) {
+			maxDiff = m2;
+			maxInd = i;
+		}
+	}
+
+	odprintf("Max diff: %.3e at %i", maxDiff, maxInd);
+
+	md3dImmediateContext->Unmap(m_gpTemp, 0);
+
+	// Clean up
+	ID3D11SamplerState* nullSamplers[1] = { nullptr };
+	md3dImmediateContext->CSSetSamplers(0, 1, nullSamplers);
+	ID3D11UnorderedAccessView* nullUAVs[1] = { nullptr };
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
+	ID3D11ShaderResourceView* nullSRVs[3] = { nullptr, nullptr, nullptr };
+	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs);
+	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
 }
 
 float GPFluidSim::ptDistance(float x0, float y0, float z0, float x1, float y1, float z1) {

@@ -44,6 +44,9 @@
 *.idb
 *.tsv
 
+# Performance reports (NB)
+*.vspx
+
 # RenderDoc Capture files (NB)
 *.cap
 /FluidSimulationDemo.VC.VC.opendb
