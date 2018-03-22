@@ -68,14 +68,17 @@ D3DApp::~D3DApp() {
 	// Restore all default settings
 	if (md3dImmediateContext) {
 		md3dImmediateContext->ClearState();
+		// Maybe flushing the device helps with all these messages?
+		md3dImmediateContext->Flush();
 	}
 
 	ReleaseCOM(md3dImmediateContext);
 
-	/*ID3D11Debug *pDebug = nullptr;
+	ID3D11Debug *pDebug = nullptr;
 	HR(md3dDevice->QueryInterface(IID_PPV_ARGS(&pDebug)));
 
-	pDebug->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);*/
+	pDebug->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
+	pDebug->Release();
 
 	ReleaseCOM(md3dDevice);
 }

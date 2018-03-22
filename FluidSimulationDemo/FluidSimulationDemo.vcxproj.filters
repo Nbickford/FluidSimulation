@@ -130,10 +130,10 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <FxCompile Include="FX\color.fx">
+    <FxCompile Include="FX\Basic.fx">
       <Filter>FX</Filter>
     </FxCompile>
-    <FxCompile Include="FX\Basic.fx">
+    <FxCompile Include="FX\color.fx">
       <Filter>FX</Filter>
     </FxCompile>
     <FxCompile Include="FX\DebugPoints.fx">
@@ -145,5 +145,28 @@
     <FxCompile Include="FX\gpAdvect.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
+    <FxCompile Include="FX\gpBinParticles.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpClearFloatArray.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpClearIntArray.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpComputeClosestParticleNeighbors.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpCountParticles.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpParticleStruct.hlsli">
+      <Filter>FX</Filter>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="FX\gpStdParameters.hlsli">
+      <Filter>FX</Filter>
+    </None>
   </ItemGroup>
 </Project>

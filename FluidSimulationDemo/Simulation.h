@@ -32,21 +32,32 @@ public:
 	void ReleaseResources();
 private:
 	void CreateTexture3D(ID3D11Texture3D** texPtr, int width, int height, int depth, bool staging=false);
+	void CreateTexture3D(ID3D11Texture3D** texPtr, int width, int height, int depth, bool staging, DXGI_FORMAT format);
 	void CreateStructuredBuffer(ID3D11Buffer** bfrPtr, int stride, int numElements, bool staging=false);
 	void Create3DSRV(ID3D11Texture3D* texPtr, ID3D11ShaderResourceView** srvPtr);
+	void Create3DSRV(ID3D11Texture3D* texPtr, ID3D11ShaderResourceView** srvPtr, DXGI_FORMAT format);
 	void CreateStructuredBufferSRV(ID3D11Buffer* bfrPtr, ID3D11ShaderResourceView** srvPtr, int numElements);
 	void Create3DUAV(ID3D11Texture3D* texPtr, ID3D11UnorderedAccessView** uavPtr, int wSize);
+	void Create3DUAV(ID3D11Texture3D* texPtr, ID3D11UnorderedAccessView** uavPtr, int wSize, DXGI_FORMAT format);
 	void CreateStructuredBufferUAV(ID3D11Buffer* bfrPtr, ID3D11UnorderedAccessView** uavPtr, int numElements);
+	void CreateConstantBuffer(ID3D11Buffer** bfrPtr, int byteLength);
 	//void CompileAndCreateEffect(const std::wstring& filename, ID3DX11Effect** mFX);
 	void CompileAndCreateCS(const std::wstring& filename, ID3D11ComputeShader** mFX);
 
+	void UploadU();
+	void UploadV();
+	void UploadW();
 	void UploadParticles(ID3D11Buffer* bfrPtr);
+
+	// Utility
+	void SetParametersConstantBuffer(float dt, float alpha, int slot);
 private:
 	void Advect(std::vector<Particle3> &particles, float dt);
 	void AdvectGPU(float dt);
 	float ptDistance(float x0, float y0, float z0, float x1, float y1, float z1);
 	void clsInner(int dx, int dy, int dz, int x, int y, int z, int* closestParticles);
 	void ComputeLevelSet(const std::vector<Particle3> &particles);
+	void TransferParticlesToGridGPU();
 	void TransferParticlesToGrid(std::vector<Particle3> &particles);
 	void ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySize, int zSize);
 	void AddBodyForces(float dt);
@@ -182,6 +193,7 @@ private:
 	ID3D11Device* md3dDevice;
 	ID3D11DeviceContext* md3dImmediateContext;
 
+	// MAC-size 3D resources
 	ID3D11Texture3D* m_gpU;
 	ID3D11Texture3D* m_gpV;
 	ID3D11Texture3D* m_gpW;
@@ -191,22 +203,47 @@ private:
 	ID3D11UnorderedAccessView* m_gpUUAV;
 	ID3D11UnorderedAccessView* m_gpVUAV;
 	ID3D11UnorderedAccessView* m_gpWUAV;
+	
+	// Normal-size 3D resources
+	ID3D11Texture3D* m_gpCounts;
+	ID3D11Texture3D* m_gpClosestParticles;
+	ID3D11Texture3D* m_gpPhi;
+	ID3D11ShaderResourceView* m_gpCountsSRV;
+	ID3D11ShaderResourceView* m_gpClosestParticlesSRV;
+	ID3D11ShaderResourceView* m_gpPhiSRV;
+	ID3D11UnorderedAccessView* m_gpCountsUAV;
+	ID3D11UnorderedAccessView* m_gpClosestParticlesUAV;
+	ID3D11UnorderedAccessView* m_gpPhiUAV;
 
 	// Structured buffer; layout consists of consecutive Particle3s.
 	ID3D11Buffer* m_gpParticles;
 	ID3D11ShaderResourceView* m_gpParticlesSRV;
 	ID3D11UnorderedAccessView* m_gpParticlesUAV;
+	// Flattened buffer taking (x,y,z) index and returning a flattened array of particles.
+	ID3D11Buffer* m_gpBinnedParticles;
+	ID3D11ShaderResourceView* m_gpBinnedParticlesSRV;
+	ID3D11UnorderedAccessView* m_gpBinnedParticlesUAV;
 
 	// BACKBUFFERS
 	ID3D11Buffer* m_gpParticlesTarget;
 	ID3D11ShaderResourceView* m_gpParticlesTargetSRV;
 	ID3D11UnorderedAccessView* m_gpParticlesTargetUAV;
 
-	// EFFECTS
+	// EFFECTS AND EFFECT-SPECIFIC CONSTANT BUFFERS
 	ID3D11ComputeShader* m_gpAdvectFX;
+	ID3D11ComputeShader* m_gpCountParticlesFX;
+	ID3D11ComputeShader* m_gpClearIntArrayFX;
+	ID3D11ComputeShader* m_gpBinParticlesFX;
+	ID3D11ComputeShader* m_gpClearFloatArrayFX;
+	ID3D11ComputeShader* m_gpComputeClosestParticleNeighborsFX;
 
-	// TEMPORARY (STAGING) BUFFERS
-	// Use this for debugging GPU shaders.
+	// Parameters constant buffer
+	ID3D11Buffer* m_gpParametersCB;
+
+	// STAGING BUFFERS
+	// UINT grid-size resource.
+	ID3D11Texture3D* m_gpIntGridStage;
+	// Tempporary: Use this for debugging GPU shaders.
 	ID3D11Buffer* m_gpTemp;
 
 	// SAMPLER STATES

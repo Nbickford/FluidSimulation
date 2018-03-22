@@ -158,6 +158,7 @@ BoxApp::~BoxApp() {
 
 	// Release input layouts
 	ReleaseCOM(mInputLayout);
+	ReleaseCOM(mPointsInputLayout);
 	// TODO(neil): Why not release mTech?
 }
 
