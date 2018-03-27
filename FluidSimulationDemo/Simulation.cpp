@@ -123,6 +123,12 @@ void GPFluidSim::AcquireResources() {
 	CompileAndCreateCS(L"FX\\gpClearFloatArray.hlsl", &m_gpClearFloatArrayFX);
 	CompileAndCreateCS(L"FX\\gpComputeClosestParticleNeighbors.hlsl",
 		&m_gpComputeClosestParticleNeighborsFX);
+	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepXm.hlsl", &m_gpClosestParticlesSweepXmFX);
+	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepXp.hlsl", &m_gpClosestParticlesSweepXpFX);
+	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepYm.hlsl", &m_gpClosestParticlesSweepYmFX);
+	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepYp.hlsl", &m_gpClosestParticlesSweepYpFX);
+	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepZm.hlsl", &m_gpClosestParticlesSweepZmFX);
+	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepZp.hlsl", &m_gpClosestParticlesSweepZpFX);
 
 	CreateConstantBuffer(&m_gpParametersCB, 12 * sizeof(float));
 }
@@ -135,6 +141,12 @@ void GPFluidSim::ReleaseResources() {
 
 	ReleaseCOM(m_gpParametersCB);
 
+	ReleaseCOM(m_gpClosestParticlesSweepZpFX);
+	ReleaseCOM(m_gpClosestParticlesSweepZmFX);
+	ReleaseCOM(m_gpClosestParticlesSweepYpFX);
+	ReleaseCOM(m_gpClosestParticlesSweepYmFX);
+	ReleaseCOM(m_gpClosestParticlesSweepXpFX);
+	ReleaseCOM(m_gpClosestParticlesSweepXmFX);
 	ReleaseCOM(m_gpComputeClosestParticleNeighborsFX);
 	ReleaseCOM(m_gpClearFloatArrayFX);
 	ReleaseCOM(m_gpBinParticlesFX);
@@ -916,8 +928,8 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	// - extrapolate that to the whole grid using fast sweeping to get Phi.
 	//---
 	// - transfer particle velocities to grid using a trilinear hat kernel
-	// (each sample point looks at particles in only 2 cells, I think - need to
-	// define radius of hat kernel)
+	// (each sample point looks at particles in 18 cells, but only considers 4 cubic cells
+	// of particles, I think - need to define radius of hat kernel)
 	// - extrapolate velocities to rest of grid by just using closest-particle info
 	// - Interesting question: What conditions do the particle velocities in the
 	// air have to satisfy?
@@ -937,9 +949,67 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	md3dImmediateContext->Dispatch((mX + 7) / 8, (mY + 7) / 8, (mZ + 7) / 8);
 
 	// Next: extrapolate that to the rest of the grid
+	// This is a series of 24 single-direction sweeps, as listed in the original
+	// ComputeLevelSet code, based off of Table 1 of "Fast Occlusion Sweeping" by 
+	// Singh, Yuksel, and House, which requires 24 sweeps. (Question: Can we do better?
+	// 2 passes of a Manhattan distance method give 12 sweeps, but is that enough?)
 
-	// Clean up for now
+	// Directions: x- y- z-  x+ y- z-  x- y+ z-  x+ y+ z-  x- y- z+  x+ y- z+  x- y+ z+  x+ y+ z+
+	// 0 1 2 3 4 5: x- x+ y- y+ z- z+
+	int numSweepDirections = 24;
+	int sweepDirections[24] = {
+		0, 2, 4,
+		1, 2, 4,
+		0, 3, 4,
+		1, 3, 4,
+		0, 2, 5,
+		1, 2, 5,
+		0, 3, 5,
+		1, 3, 5,
+	};
 
+	// Luckily, since we use the same parameters as gpComputeClosestParticleNeighbors, we don't
+	// need to issue any calls other than setting shaders and calling dispatches!
+	for (int i = 0; i < numSweepDirections; i++) {
+		int dir = sweepDirections[i];
+		switch (dir) {
+		case 0:
+			md3dImmediateContext->CSSetShader(m_gpClosestParticlesSweepXmFX, NULL, 0);
+			break;
+		case 1:
+			md3dImmediateContext->CSSetShader(m_gpClosestParticlesSweepXpFX, NULL, 0);
+			break;
+		case 2:
+			md3dImmediateContext->CSSetShader(m_gpClosestParticlesSweepYmFX, NULL, 0);
+			break;
+		case 3:
+			md3dImmediateContext->CSSetShader(m_gpClosestParticlesSweepYpFX, NULL, 0);
+			break;
+		case 4:
+			md3dImmediateContext->CSSetShader(m_gpClosestParticlesSweepZmFX, NULL, 0);
+			break;
+		case 5:
+			md3dImmediateContext->CSSetShader(m_gpClosestParticlesSweepZpFX, NULL, 0);
+			break;
+		}
+
+		switch (dir) {
+		case 0:
+		case 1:
+			md3dImmediateContext->Dispatch(1,            (mY + 7) / 8, (mZ + 7) / 8);
+			break;
+		case 2:
+		case 3:
+			md3dImmediateContext->Dispatch((mX + 7) / 8,            1, (mY + 7) / 8);
+			break;
+		case 4:
+		case 5:
+			md3dImmediateContext->Dispatch((mX + 7) / 8, (mY + 7) / 8,            1);
+			break;
+		}
+	}
+
+	// Next: Transfer particle velocities to grids (needs Amts grids)
 }
 
 void GPFluidSim::TransferParticlesToGrid(std::vector<Particle3> &particles) {

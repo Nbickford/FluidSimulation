@@ -160,7 +160,22 @@
     <FxCompile Include="FX\gpCountParticles.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
-    <FxCompile Include="FX\gpParticleStruct.hlsli">
+    <FxCompile Include="FX\gpClosestParticlesSweepXm.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpClosestParticlesSweepXp.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpClosestParticlesSweepYm.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpClosestParticlesSweepYp.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpClosestParticlesSweepZm.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpClosestParticlesSweepZp.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
   </ItemGroup>
@@ -168,5 +183,6 @@
     <None Include="FX\gpStdParameters.hlsli">
       <Filter>FX</Filter>
     </None>
+    <None Include="FX\gpParticleStruct.hlsli" />
   </ItemGroup>
 </Project>

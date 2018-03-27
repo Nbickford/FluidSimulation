@@ -236,6 +236,12 @@ private:
 	ID3D11ComputeShader* m_gpBinParticlesFX;
 	ID3D11ComputeShader* m_gpClearFloatArrayFX;
 	ID3D11ComputeShader* m_gpComputeClosestParticleNeighborsFX;
+	ID3D11ComputeShader* m_gpClosestParticlesSweepXmFX;
+	ID3D11ComputeShader* m_gpClosestParticlesSweepXpFX;
+	ID3D11ComputeShader* m_gpClosestParticlesSweepYmFX;
+	ID3D11ComputeShader* m_gpClosestParticlesSweepYpFX;
+	ID3D11ComputeShader* m_gpClosestParticlesSweepZmFX;
+	ID3D11ComputeShader* m_gpClosestParticlesSweepZpFX;
 
 	// Parameters constant buffer
 	ID3D11Buffer* m_gpParametersCB;
