@@ -178,11 +178,25 @@
     <FxCompile Include="FX\gpClosestParticlesSweepZp.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
+    <FxCompile Include="FX\gpTransferParticleVelocitiesU.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpTransferParticleVelocitiesV.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpTransferParticleVelocitiesW.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="FX\gpStdParameters.hlsli">
       <Filter>FX</Filter>
     </None>
-    <None Include="FX\gpParticleStruct.hlsli" />
+    <None Include="FX\gpParticleIndexing.hlsli">
+      <Filter>FX</Filter>
+    </None>
+    <None Include="FX\gpParticleStruct.hlsli">
+      <Filter>FX</Filter>
+    </None>
   </ItemGroup>
 </Project>

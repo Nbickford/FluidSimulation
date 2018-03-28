@@ -242,6 +242,9 @@ private:
 	ID3D11ComputeShader* m_gpClosestParticlesSweepYpFX;
 	ID3D11ComputeShader* m_gpClosestParticlesSweepZmFX;
 	ID3D11ComputeShader* m_gpClosestParticlesSweepZpFX;
+	ID3D11ComputeShader* m_gpTransferParticleVelocitiesUFX;
+	ID3D11ComputeShader* m_gpTransferParticleVelocitiesVFX;
+	ID3D11ComputeShader* m_gpTransferParticleVelocitiesWFX;
 
 	// Parameters constant buffer
 	ID3D11Buffer* m_gpParametersCB;

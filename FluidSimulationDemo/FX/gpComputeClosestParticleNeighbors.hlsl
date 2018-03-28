@@ -4,7 +4,6 @@
 // (even diagonally) to a grid cell containing particles.
 
 #include "gpParticleStruct.hlsli"
-#include "gpStdParameters.hlsli"
 
 // Parameters:
 // An mMX*mMY*mMZ array of unsigned integers.
@@ -19,6 +18,8 @@ RWTexture3D<uint> gClosestParticles : register(u0);
 // any particle. Should be initially set to infinities.
 RWTexture3D<float> gPhi : register(u1);
 
+#include "gpParticleIndexing.hlsli"
+
 // We'll use groupshared memory to cache array offsets
 // and counts.
 
@@ -30,28 +31,6 @@ RWTexture3D<float> gPhi : register(u1);
 // Combined size: 2*4*CacheSize^3 bytes -
 // so we should have N<12.6 for optimal performance.
 groupshared uint2 kOffsetSizeCache[CacheSize*CacheSize*CacheSize];
-
-// Takes an index in [0,mM]^3 and returns the index of the previous
-// cell when laid out as a buffer.
-// Note: As currently written, this is expensive.
-int3 previousCell(int3 p) {
-	int3 ret = p - int3(1, 0, 0);
-	if (ret.x < 0) {
-		ret = ret + int3(mM.x, -1, 0);
-		if (ret.y < 0) {
-			ret = ret + int3(0, mM.y, -1);
-		}
-	}
-	return ret;
-}
-
-// Gets the offset and length of the array containing
-// the particles in cell p in gParticles.
-uint2 getOffsetSize(int3 p) {
-	int3 pc = previousCell(p);
-	uint offset = gOffsets[pc];
-	return uint2(offset, gOffsets[p] - offset);
-}
 
 // Input in [-1,N]^3 to a position in kOffsetSizeCache.
 int index3(int3 p) {

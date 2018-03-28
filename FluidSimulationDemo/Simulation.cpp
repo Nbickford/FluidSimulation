@@ -129,6 +129,9 @@ void GPFluidSim::AcquireResources() {
 	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepYp.hlsl", &m_gpClosestParticlesSweepYpFX);
 	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepZm.hlsl", &m_gpClosestParticlesSweepZmFX);
 	CompileAndCreateCS(L"FX\\gpClosestParticlesSweepZp.hlsl", &m_gpClosestParticlesSweepZpFX);
+	CompileAndCreateCS(L"FX\\gpTransferParticleVelocitiesU.hlsl", &m_gpTransferParticleVelocitiesUFX);
+	CompileAndCreateCS(L"FX\\gpTransferParticleVelocitiesV.hlsl", &m_gpTransferParticleVelocitiesVFX);
+	CompileAndCreateCS(L"FX\\gpTransferParticleVelocitiesW.hlsl", &m_gpTransferParticleVelocitiesWFX);
 
 	CreateConstantBuffer(&m_gpParametersCB, 12 * sizeof(float));
 }
@@ -141,6 +144,9 @@ void GPFluidSim::ReleaseResources() {
 
 	ReleaseCOM(m_gpParametersCB);
 
+	ReleaseCOM(m_gpTransferParticleVelocitiesWFX);
+	ReleaseCOM(m_gpTransferParticleVelocitiesVFX);
+	ReleaseCOM(m_gpTransferParticleVelocitiesUFX);
 	ReleaseCOM(m_gpClosestParticlesSweepZpFX);
 	ReleaseCOM(m_gpClosestParticlesSweepZmFX);
 	ReleaseCOM(m_gpClosestParticlesSweepYpFX);
@@ -893,9 +899,9 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	md3dImmediateContext->CopyResource(m_gpIntGridStage, m_gpCounts);
 	D3D11_MAPPED_SUBRESOURCE mapped;
 	int* sums = new int[mX*mY*mZ];
-	md3dImmediateContext->Map(m_gpIntGridStage, 0, D3D11_MAP_READ, 0, &mapped);
-	sums[0] = 0;
+	md3dImmediateContext->Map(m_gpIntGridStage, 0, D3D11_MAP_READ, 0, &mapped); // modified to be shifted - check rest of code
 	int* mappedData = reinterpret_cast<int*>(mapped.pData);
+	sums[0] = mappedData[0];
 	for (int i = 1; i < mX*mY*mZ; i++) {
 		sums[i] = mappedData[i - 1] + sums[i - 1]; //hooray
 	}
@@ -906,6 +912,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 		4 * mX, 4 * mX*mY);
 
 	// Finally, put particles into cells.
+	// This modifies gpCounts to become a shifted prefix sum!
 	md3dImmediateContext->CSSetShader(m_gpBinParticlesFX, NULL, 0);
 	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpParticlesSRV);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpCountsUAV, NULL);
@@ -1009,7 +1016,33 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 		}
 	}
 
-	// Next: Transfer particle velocities to grids (needs Amts grids)
+	// Unbind UAVs
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 2, nullUAVs2, NULL);
+	// Next: Transfer particle velocities to grids and extrapolate velocities.
+	// Each velocity point looks at the particles in its 18 immediate neighbors: [-1 0]
+	// in its direction, and [-1 0 1] in the other two directions.
+	// See shader code for more information.
+	md3dImmediateContext->CSSetShader(m_gpTransferParticleVelocitiesUFX, NULL, 0);
+	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpCountsSRV);
+	md3dImmediateContext->CSSetShaderResources(1, 1, &m_gpBinnedParticlesSRV);
+	md3dImmediateContext->CSSetShaderResources(2, 1, &m_gpClosestParticlesSRV);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpUUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 1 + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+	// V
+	md3dImmediateContext->CSSetShader(m_gpTransferParticleVelocitiesVFX, NULL, 0);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpVUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 1 + 3) / 4, (mZ + 3) / 4);
+	// W
+	md3dImmediateContext->CSSetShader(m_gpTransferParticleVelocitiesWFX, NULL, 0);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpWUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 1 + 3) / 4);
+
+	// and with that, we're done!
+	// Clean up
+	ID3D11ShaderResourceView* nullSRVs3[3] = { nullptr, nullptr, nullptr };
+	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
+	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
 }
 
 void GPFluidSim::TransferParticlesToGrid(std::vector<Particle3> &particles) {
