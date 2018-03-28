@@ -61,6 +61,7 @@ private:
 	void TransferParticlesToGrid(std::vector<Particle3> &particles);
 	void ExtrapolateValues(float* srcAr, bool* validAr, int xSize, int ySize, int zSize);
 	void AddBodyForces(float dt);
+	void AddBodyForcesGPU(float dt);
 	void Project(float dt);
 	void SetEdgeVelocitiesToZero();
 
@@ -245,6 +246,7 @@ private:
 	ID3D11ComputeShader* m_gpTransferParticleVelocitiesUFX;
 	ID3D11ComputeShader* m_gpTransferParticleVelocitiesVFX;
 	ID3D11ComputeShader* m_gpTransferParticleVelocitiesWFX;
+	ID3D11ComputeShader* m_gpAddBodyForcesFX;
 
 	// Parameters constant buffer
 	ID3D11Buffer* m_gpParametersCB;

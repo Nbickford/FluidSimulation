@@ -187,6 +187,9 @@
     <FxCompile Include="FX\gpTransferParticleVelocitiesW.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
+    <FxCompile Include="FX\gpAddBodyForces.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="FX\gpStdParameters.hlsli">

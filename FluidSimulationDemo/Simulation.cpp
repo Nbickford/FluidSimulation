@@ -132,6 +132,7 @@ void GPFluidSim::AcquireResources() {
 	CompileAndCreateCS(L"FX\\gpTransferParticleVelocitiesU.hlsl", &m_gpTransferParticleVelocitiesUFX);
 	CompileAndCreateCS(L"FX\\gpTransferParticleVelocitiesV.hlsl", &m_gpTransferParticleVelocitiesVFX);
 	CompileAndCreateCS(L"FX\\gpTransferParticleVelocitiesW.hlsl", &m_gpTransferParticleVelocitiesWFX);
+	CompileAndCreateCS(L"FX\\gpAddBodyForces.hlsl", &m_gpAddBodyForcesFX);
 
 	CreateConstantBuffer(&m_gpParametersCB, 12 * sizeof(float));
 }
@@ -144,6 +145,7 @@ void GPFluidSim::ReleaseResources() {
 
 	ReleaseCOM(m_gpParametersCB);
 
+	ReleaseCOM(m_gpAddBodyForcesFX);
 	ReleaseCOM(m_gpTransferParticleVelocitiesWFX);
 	ReleaseCOM(m_gpTransferParticleVelocitiesVFX);
 	ReleaseCOM(m_gpTransferParticleVelocitiesUFX);
@@ -498,6 +500,7 @@ void GPFluidSim::Simulate(float dt) {
 
 	// Add gravity
 	AddBodyForces(dt);
+	AddBodyForcesGPU(dt);
 
 	Project(dt);
 
@@ -1412,6 +1415,18 @@ void GPFluidSim::AddBodyForces(float dt) {
 	for (int i = 0; i < count; ++i) {
 		m_MV[i] += gdT;
 	}
+}
+
+void GPFluidSim::AddBodyForcesGPU(float dt) {
+	// Just adds dt*g to the velocity field
+	SetParametersConstantBuffer(dt, 0, 0);
+	md3dImmediateContext->CSSetShader(m_gpAddBodyForcesFX, NULL, 0);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpVUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+	// Clean up
+	ID3D11UnorderedAccessView* nullUAVs[1] = { nullptr };
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
+
 }
 
 void GPFluidSim::Project(float dt) {
