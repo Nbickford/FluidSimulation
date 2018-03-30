@@ -190,6 +190,21 @@
     <FxCompile Include="FX\gpAddBodyForces.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
+    <FxCompile Include="FX\gpProjectComputeRHS.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpProjectComputeDiagCoeffs.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpProjectToVel.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpProjectIteration2.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\gpProjectIteration1.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="FX\gpStdParameters.hlsli">

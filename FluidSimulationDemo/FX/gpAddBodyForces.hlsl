@@ -11,5 +11,10 @@ RWTexture3D<float> gMacV : register(u0);
 void main( uint3 DTid : SV_DispatchThreadID )
 {
 	// Q: Should we be keeping our edge velocities at 0 here?
-	gMacV[DTid] -= 9.81*mDT;
+	// A: Yes; otherwise it messes up the compatibility conditions for advection.
+	if (float(DTid.x) > 0.5f && float(DTid.x)<mM.x - 0.5f
+		&& float(DTid.y)>0.5f && float(DTid.y)<mM.y - 0.5f
+		&& float(DTid.z)>0.5f && float(DTid.z) < mM.z - 0.5f) {
+		gMacV[DTid] -= 9.81*mDT;
+	}
 }

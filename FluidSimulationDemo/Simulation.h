@@ -63,6 +63,7 @@ private:
 	void AddBodyForces(float dt);
 	void AddBodyForcesGPU(float dt);
 	void Project(float dt);
+	void ProjectGPU(float dt);
 	void SetEdgeVelocitiesToZero();
 
 	void PrintDivergence();
@@ -209,12 +210,21 @@ private:
 	ID3D11Texture3D* m_gpCounts;
 	ID3D11Texture3D* m_gpClosestParticles;
 	ID3D11Texture3D* m_gpPhi;
+	ID3D11Texture3D* m_gpProjectRHS;
+	ID3D11Texture3D* m_gpDiagCoeffs;
+	ID3D11Texture3D* m_gpProjectP;
 	ID3D11ShaderResourceView* m_gpCountsSRV;
 	ID3D11ShaderResourceView* m_gpClosestParticlesSRV;
 	ID3D11ShaderResourceView* m_gpPhiSRV;
+	ID3D11ShaderResourceView* m_gpProjectRHSSRV;
+	ID3D11ShaderResourceView* m_gpDiagCoeffsSRV;
+	ID3D11ShaderResourceView* m_gpProjectPSRV;
 	ID3D11UnorderedAccessView* m_gpCountsUAV;
 	ID3D11UnorderedAccessView* m_gpClosestParticlesUAV;
 	ID3D11UnorderedAccessView* m_gpPhiUAV;
+	ID3D11UnorderedAccessView* m_gpProjectRHSUAV;
+	ID3D11UnorderedAccessView* m_gpDiagCoeffsUAV;
+	ID3D11UnorderedAccessView* m_gpProjectPUAV;
 
 	// Structured buffer; layout consists of consecutive Particle3s.
 	ID3D11Buffer* m_gpParticles;
@@ -247,6 +257,11 @@ private:
 	ID3D11ComputeShader* m_gpTransferParticleVelocitiesVFX;
 	ID3D11ComputeShader* m_gpTransferParticleVelocitiesWFX;
 	ID3D11ComputeShader* m_gpAddBodyForcesFX;
+	ID3D11ComputeShader* m_gpProjectComputeRHSFX;
+	ID3D11ComputeShader* m_gpProjectComputeDiagCoeffsFX;
+	ID3D11ComputeShader* m_gpProjectIteration1FX;
+	ID3D11ComputeShader* m_gpProjectIteration2FX;
+	ID3D11ComputeShader* m_gpProjectToVelFX;
 
 	// Parameters constant buffer
 	ID3D11Buffer* m_gpParametersCB;
@@ -254,6 +269,8 @@ private:
 	// STAGING BUFFERS
 	// UINT grid-size resource.
 	ID3D11Texture3D* m_gpIntGridStage;
+	// FLOAT grid-size resource
+	ID3D11Texture3D* m_gpFloatGridStage;
 	// Tempporary: Use this for debugging GPU shaders.
 	ID3D11Buffer* m_gpTemp;
 

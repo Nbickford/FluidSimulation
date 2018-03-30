@@ -73,10 +73,20 @@ void GPFluidSim::AcquireResources() {
 	Create3DUAV(m_gpClosestParticles, &m_gpClosestParticlesUAV, mZ, DXGI_FORMAT_R32_UINT);
 	// Normal-size floating-point 3D arrays
 	CreateTexture3D(&m_gpPhi, mX, mY, mZ);
+	CreateTexture3D(&m_gpProjectRHS, mX, mY, mZ);
+	CreateTexture3D(&m_gpDiagCoeffs, mX, mY, mZ);
+	CreateTexture3D(&m_gpProjectP, mX, mY, mZ);
 	Create3DSRV(m_gpPhi, &m_gpPhiSRV);
+	Create3DSRV(m_gpProjectRHS, &m_gpProjectRHSSRV);
+	Create3DSRV(m_gpDiagCoeffs, &m_gpDiagCoeffsSRV);
+	Create3DSRV(m_gpProjectP, &m_gpProjectPSRV);
 	Create3DUAV(m_gpPhi, &m_gpPhiUAV, mZ);
+	Create3DUAV(m_gpProjectRHS, &m_gpProjectRHSUAV, mZ);
+	Create3DUAV(m_gpDiagCoeffs, &m_gpDiagCoeffsUAV, mZ);
+	Create3DUAV(m_gpProjectP, &m_gpProjectPUAV, mZ);
 	// Staging buffer for counts
 	CreateTexture3D(&m_gpIntGridStage, mX, mY, mZ, true, DXGI_FORMAT_R32_UINT);
+	CreateTexture3D(&m_gpFloatGridStage, mX, mY, mZ, true, DXGI_FORMAT_R32_FLOAT);
 
 
 	// Particles
@@ -133,6 +143,11 @@ void GPFluidSim::AcquireResources() {
 	CompileAndCreateCS(L"FX\\gpTransferParticleVelocitiesV.hlsl", &m_gpTransferParticleVelocitiesVFX);
 	CompileAndCreateCS(L"FX\\gpTransferParticleVelocitiesW.hlsl", &m_gpTransferParticleVelocitiesWFX);
 	CompileAndCreateCS(L"FX\\gpAddBodyForces.hlsl", &m_gpAddBodyForcesFX);
+	CompileAndCreateCS(L"FX\\gpProjectComputeRHS.hlsl", &m_gpProjectComputeRHSFX);
+	CompileAndCreateCS(L"FX\\gpProjectComputeDiagCoeffs.hlsl", &m_gpProjectComputeDiagCoeffsFX);
+	CompileAndCreateCS(L"FX\\gpProjectIteration1.hlsl", &m_gpProjectIteration1FX);
+	CompileAndCreateCS(L"FX\\gpProjectIteration2.hlsl", &m_gpProjectIteration2FX);
+	CompileAndCreateCS(L"FX\\gpProjectToVel.hlsl", &m_gpProjectToVelFX);
 
 	CreateConstantBuffer(&m_gpParametersCB, 12 * sizeof(float));
 }
@@ -145,6 +160,11 @@ void GPFluidSim::ReleaseResources() {
 
 	ReleaseCOM(m_gpParametersCB);
 
+	ReleaseCOM(m_gpProjectToVelFX);
+	ReleaseCOM(m_gpProjectIteration2FX);
+	ReleaseCOM(m_gpProjectIteration1FX);
+	ReleaseCOM(m_gpProjectComputeDiagCoeffsFX);
+	ReleaseCOM(m_gpProjectComputeRHSFX);
 	ReleaseCOM(m_gpAddBodyForcesFX);
 	ReleaseCOM(m_gpTransferParticleVelocitiesWFX);
 	ReleaseCOM(m_gpTransferParticleVelocitiesVFX);
@@ -503,6 +523,7 @@ void GPFluidSim::Simulate(float dt) {
 	AddBodyForcesGPU(dt);
 
 	Project(dt);
+	ProjectGPU(dt);
 
 	//---------------------------------------
 	// FINISH SETTING NEW PARTICLE VELOCITIES
@@ -619,33 +640,6 @@ void GPFluidSim::AdvectGPU(float dt) {
 	md3dImmediateContext->Dispatch(((UINT)m_particles.size() + 63) / 64, 1, 1);
 	// Run CPU version
 	Advect(m_particles, dt);
-
-	// Compare results? Reference: Luna, v. 11, pg. 443-444
-#if 0 // set this to 1 to compare results
-	md3dImmediateContext->CopyResource(m_gpTemp, m_gpParticlesTarget);
-	md3dImmediateContext->Map(m_gpTemp, 0, D3D11_MAP_READ, 0, &mappedData);
-	Particle3* dataView = reinterpret_cast<Particle3*>(mappedData.pData);
-
-	float maxDiff=0.0f;
-	int maxInd=-1;
-	for (int i = 0; i < m_particles.size(); i++) {
-		float m2 =        fabsf(m_particles[i].X - dataView[i].X);
-		m2 = std::max(m2, fabsf(m_particles[i].Y - dataView[i].Y));
-		m2 = std::max(m2, fabsf(m_particles[i].Z - dataView[i].Z));
-		m2 = std::max(m2, fabsf(m_particles[i].uX - dataView[i].uX));
-		m2 = std::max(m2, fabsf(m_particles[i].uY - dataView[i].uY));
-		m2 = std::max(m2, fabsf(m_particles[i].uZ - dataView[i].uZ));
-		if (m2 > maxDiff) {
-			maxDiff = m2;
-			maxInd = i;
-		}
-	}
-
-	odprintf("Max diff: %.3e at %i", maxDiff, maxInd);
-
-	md3dImmediateContext->Unmap(m_gpTemp, 0);
-
-#endif
 
 	// Clean up
 	ID3D11SamplerState* nullSamplers[1] = { nullptr };
@@ -944,7 +938,8 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	// - Interesting question: What conditions do the particle velocities in the
 	// air have to satisfy?
 
-	// Clear m_gpPhi
+	// Clear m_gpPhi with infinity
+	SetParametersConstantBuffer(0, INFINITY, 0);
 	md3dImmediateContext->CSSetShader(m_gpClearFloatArrayFX, NULL, 0);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpPhiUAV, NULL);
 	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
@@ -1732,6 +1727,107 @@ void GPFluidSim::Project(float dt) {
 	delete[] b;
 	delete[] p;
 	delete[] diagCoeffs;
+}
+
+void GPFluidSim::ProjectGPU(float dt) {
+	// GPU-based version of the Project method (see Simulation2D.cpp or Simulation3D.cpp for more information).
+	// Steps:
+	// 1. Compute right-hand-side (vel, dt => b)
+	// 2. Compute diagonal coefficients (Phi => diagCoeffs)
+	// 3. [After setting p to 0,] solve the linear system (diagCoeffs, Phi, b, omega, p => new p)
+	//    The previous step is run with a 2-color checkerboard iteration numIterations (i.e. many) times.
+	// 4. Compute new velocity fields (p, Phi => U, V, W) - can potentially be done in one pass!
+
+	// 1. Compute right-hand-side (vel, dt => b)
+	SetParametersConstantBuffer(dt, 0, 0);
+	md3dImmediateContext->CSSetShader(m_gpProjectComputeRHSFX, NULL, 0);
+	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpUSRV);
+	md3dImmediateContext->CSSetShaderResources(1, 1, &m_gpVSRV);
+	md3dImmediateContext->CSSetShaderResources(2, 1, &m_gpWSRV);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpProjectRHSUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+	// Clean up 1
+	ID3D11ShaderResourceView* nullSRVs3[3] = { nullptr, nullptr, nullptr };
+	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
+
+#if 0
+	// Compatibility condition: Our RHS should have a sum of 0.
+	D3D11_MAPPED_SUBRESOURCE mappedData;
+	md3dImmediateContext->CopyResource(m_gpFloatGridStage, m_gpProjectRHS);
+	md3dImmediateContext->Map(m_gpFloatGridStage, 0, D3D11_MAP_READ, 0, &mappedData);
+	float* dataView = reinterpret_cast<float*>(mappedData.pData);
+
+	double sum = 0.0;
+	for (int z = 0; z < mZ; z++) {
+		for (int y = 0; y < mY; y++) {
+			for (int x = 0; x < mX; x++) {
+				sum += (double)dataView[x + mappedData.RowPitch / sizeof(float) * y + mappedData.DepthPitch * z / sizeof(float)];
+			}
+		}
+	}
+
+	odprintf("Sum: %.3e", sum);
+
+	md3dImmediateContext->Unmap(m_gpFloatGridStage, 0);
+#endif
+
+	// 2. Compute diagonal coefficients (Phi => diagCoeffs)
+	md3dImmediateContext->CSSetShader(m_gpProjectComputeDiagCoeffsFX, NULL, 0);
+	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpPhiSRV);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpDiagCoeffsUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+	// Clean up 2
+	ID3D11ShaderResourceView* nullSRVs1[1] = { nullptr };
+	md3dImmediateContext->CSSetShaderResources(0, 1, nullSRVs1);
+
+	// 3a. Set p to 0. (We pass 0 in through the alpha parameter!)
+	md3dImmediateContext->CSSetShader(m_gpClearFloatArrayFX, NULL, 0);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpProjectPUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+
+	// 3b. Solve the linear system using a 2-color checkerboard Gauss-Seidel iteration.
+	//     (diagCoeffs, Phi, omega, p => new p)
+	// For the moment, we'll implement this as a single file for a single 2-color iteration,
+	// but this doesn't do Gauss-Seidel perfectly because of inter-dispatch synchronization.
+	// I think it should still converge to the proper value - the question is, what value
+	// do we gain from this approach?
+	// Another question: Is it important to use double precision here?
+	//
+	// We pass in our SOR value of omega through the alpha parameter, since we have space for it.
+	float omega = 2 - 3.16343f / mX;
+	//float omega = 1.5f; // TESTING
+	int numIterations = 100;
+
+	SetParametersConstantBuffer(dt, omega, 0);
+	
+	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpDiagCoeffsSRV);
+	md3dImmediateContext->CSSetShaderResources(1, 1, &m_gpPhiSRV);
+	md3dImmediateContext->CSSetShaderResources(2, 1, &m_gpProjectRHSSRV);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpProjectPUAV, NULL);
+	for (int i = 0; i < numIterations; i++) {
+		md3dImmediateContext->CSSetShader(m_gpProjectIteration1FX, NULL, 0);
+		md3dImmediateContext->Dispatch((mX + 7) / 8, (mY + 3) / 4, (mZ + 3) / 4); // This is because of our 2x1x1 thread assignment
+		md3dImmediateContext->CSSetShader(m_gpProjectIteration2FX, NULL, 0);
+		md3dImmediateContext->Dispatch((mX + 7) / 8, (mY + 3) / 4, (mZ + 3) / 4);
+	}
+	// Clean up 3b
+	ID3D11UnorderedAccessView* nullUAVs1[1] = { nullptr };
+	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs1, NULL);
+
+	// 4. Compute new velocity fields (p, Phi => U, V, W)
+	md3dImmediateContext->CSSetShader(m_gpProjectToVelFX, NULL, 0);
+	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpProjectPSRV);
+	md3dImmediateContext->CSSetShaderResources(1, 1, &m_gpPhiSRV);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpUUAV, NULL);
+	md3dImmediateContext->CSSetUnorderedAccessViews(1, 1, &m_gpVUAV, NULL);
+	md3dImmediateContext->CSSetUnorderedAccessViews(2, 1, &m_gpWUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+	// Clean up 4
+	ID3D11ShaderResourceView* nullSRVs2[2] = { nullptr, nullptr };
+	ID3D11UnorderedAccessView* nullUAVs3[3] = { nullptr, nullptr, nullptr };
+	md3dImmediateContext->CSSetShaderResources(0, 1, nullSRVs2);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs3, NULL);
 }
 
 void GPFluidSim::PrintDivergence() {
