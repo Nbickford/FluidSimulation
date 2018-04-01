@@ -92,6 +92,7 @@ private:
 	ID3DX11EffectMatrixVariable* mDebugPointsFXWorld;
 	ID3DX11EffectMatrixVariable* mDebugPointsFXViewProj;
 	ID3DX11EffectScalarVariable* mDebugPointsFXPtSize;
+	ID3DX11EffectShaderResourceVariable* mDebugPointsFXParticlesSRV;
 
 	XMFLOAT4X4 mWorld;
 	XMFLOAT4X4 mView;
@@ -318,7 +319,9 @@ void BoxApp::DrawScene() {
 	stride = sizeof(Point);
 	offset = 0;
 
-	md3dImmediateContext->IASetInputLayout(mPointsInputLayout);
+	//md3dImmediateContext->IASetInputLayout(mPointsInputLayout);
+	// See https://msdn.microsoft.com/en-us/library/windows/desktop/bb232912(v=vs.85).aspx
+	md3dImmediateContext->IASetInputLayout(NULL);
 	md3dImmediateContext->IASetPrimitiveTopology(
 		D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
 
@@ -331,20 +334,27 @@ void BoxApp::DrawScene() {
 		2.0f / (mZoomFactor*mTexWidth))); // NOTE: Assumes mTexWidth==mTexHeight!
 	mDebugPointsFXWorld->SetMatrix(reinterpret_cast<float*>(&world));
 	mDebugPointsFXViewProj->SetMatrix(reinterpret_cast<float*>(&viewProj));
+	mDebugPointsFXParticlesSRV->SetResource(fluidSim.m_gpParticlesSRV);
+	md3dImmediateContext->IASetIndexBuffer(NULL, DXGI_FORMAT_UNKNOWN, 0);
 
-	md3dImmediateContext->IASetVertexBuffers(0, 1, &mPointVB,
+	/*md3dImmediateContext->IASetVertexBuffers(0, 1, &mPointVB,
 		&stride, &offset);
 	md3dImmediateContext->IASetIndexBuffer(mPointIB,
-		DXGI_FORMAT_R32_UINT, 0);
+		DXGI_FORMAT_R32_UINT, 0);*/
 
 	mDebugPointsTech->GetDesc(&techDesc);
 
 	for (UINT p = 0; p < techDesc.Passes; ++p) {
 		mDebugPointsTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
 
-		UINT numIndices = mPointCount;
-		md3dImmediateContext->DrawIndexed(numIndices, 0, 0);
+		UINT numIndices = (UINT)fluidSim.m_particles.size();
+		md3dImmediateContext->Draw(numIndices, 0);
+		//md3dImmediateContext->DrawIndexed(numIndices, 0, 0);
 	}
+
+	// Unbind SRV 0
+	mDebugPointsFXParticlesSRV->SetResource(NULL);
+	mDebugPointsTech->GetPassByIndex(0)->Apply(0, md3dImmediateContext);
 
 	HR(mSwapChain->Present(0, 0));
 }
@@ -608,7 +618,7 @@ void BoxApp::BuildFX() {
 	//--------------------------------
 	// DEBUG POINTS FX
 	//--------------------------------
-	compiledShader = d3dUtil::CompileShader(L"FX\\DebugPointsQuads.fx", nullptr, "", "fx_5_0");
+	compiledShader = d3dUtil::CompileShader(L"FX\\DebugPointsQuadsCS.fx", nullptr, "", "fx_5_0");
 
 	HR(D3DX11CreateEffectFromMemory(
 		compiledShader->GetBufferPointer(),
@@ -621,6 +631,7 @@ void BoxApp::BuildFX() {
 	mDebugPointsFXPtSize = mDebugPointsFX->GetVariableByName("gPtSize")->AsScalar();
 	mDebugPointsFXWorld = mDebugPointsFX->GetVariableByName("gWorld")->AsMatrix();
 	mDebugPointsFXViewProj = mDebugPointsFX->GetVariableByName("gViewProj")->AsMatrix();
+	mDebugPointsFXParticlesSRV = mDebugPointsFX->GetVariableByName("gParticles")->AsShaderResource();
 }
 
 void BoxApp::BuildVertexLayout() {

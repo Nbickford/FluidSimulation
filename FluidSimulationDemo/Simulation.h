@@ -199,12 +199,21 @@ private:
 	ID3D11Texture3D* m_gpU;
 	ID3D11Texture3D* m_gpV;
 	ID3D11Texture3D* m_gpW;
+	ID3D11Texture3D* m_gpOldU;
+	ID3D11Texture3D* m_gpOldV;
+	ID3D11Texture3D* m_gpOldW;
 	ID3D11ShaderResourceView* m_gpUSRV;
 	ID3D11ShaderResourceView* m_gpVSRV;
 	ID3D11ShaderResourceView* m_gpWSRV;
+	ID3D11ShaderResourceView* m_gpOldUSRV;
+	ID3D11ShaderResourceView* m_gpOldVSRV;
+	ID3D11ShaderResourceView* m_gpOldWSRV;
 	ID3D11UnorderedAccessView* m_gpUUAV;
 	ID3D11UnorderedAccessView* m_gpVUAV;
 	ID3D11UnorderedAccessView* m_gpWUAV;
+	ID3D11UnorderedAccessView* m_gpOldUUAV;
+	ID3D11UnorderedAccessView* m_gpOldVUAV;
+	ID3D11UnorderedAccessView* m_gpOldWUAV;
 	
 	// Normal-size 3D resources
 	ID3D11Texture3D* m_gpCounts;
@@ -226,19 +235,16 @@ private:
 	ID3D11UnorderedAccessView* m_gpDiagCoeffsUAV;
 	ID3D11UnorderedAccessView* m_gpProjectPUAV;
 
+	public:
 	// Structured buffer; layout consists of consecutive Particle3s.
 	ID3D11Buffer* m_gpParticles;
 	ID3D11ShaderResourceView* m_gpParticlesSRV;
 	ID3D11UnorderedAccessView* m_gpParticlesUAV;
+	private:
 	// Flattened buffer taking (x,y,z) index and returning a flattened array of particles.
 	ID3D11Buffer* m_gpBinnedParticles;
 	ID3D11ShaderResourceView* m_gpBinnedParticlesSRV;
 	ID3D11UnorderedAccessView* m_gpBinnedParticlesUAV;
-
-	// BACKBUFFERS
-	ID3D11Buffer* m_gpParticlesTarget;
-	ID3D11ShaderResourceView* m_gpParticlesTargetSRV;
-	ID3D11UnorderedAccessView* m_gpParticlesTargetUAV;
 
 	// EFFECTS AND EFFECT-SPECIFIC CONSTANT BUFFERS
 	ID3D11ComputeShader* m_gpAdvectFX;
@@ -262,6 +268,7 @@ private:
 	ID3D11ComputeShader* m_gpProjectIteration1FX;
 	ID3D11ComputeShader* m_gpProjectIteration2FX;
 	ID3D11ComputeShader* m_gpProjectToVelFX;
+	ID3D11ComputeShader* m_gpUpdateParticleVelocitiesFX;
 
 	// Parameters constant buffer
 	ID3D11Buffer* m_gpParametersCB;

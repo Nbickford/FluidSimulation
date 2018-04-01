@@ -205,6 +205,12 @@
     <FxCompile Include="FX\gpProjectIteration1.hlsl">
       <Filter>FX</Filter>
     </FxCompile>
+    <FxCompile Include="FX\gpUpdateParticleVelocities.hlsl">
+      <Filter>FX</Filter>
+    </FxCompile>
+    <FxCompile Include="FX\DebugPointsQuadsCS.fx">
+      <Filter>FX</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="FX\gpStdParameters.hlsli">

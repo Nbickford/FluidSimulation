@@ -58,12 +58,21 @@ void GPFluidSim::AcquireResources() {
 	CreateTexture3D(&m_gpU, mX + 1, mY, mZ);
 	CreateTexture3D(&m_gpV, mX, mY + 1, mZ);
 	CreateTexture3D(&m_gpW, mX, mY, mZ + 1);
+	CreateTexture3D(&m_gpOldU, mX + 1, mY, mZ);
+	CreateTexture3D(&m_gpOldV, mX, mY + 1, mZ);
+	CreateTexture3D(&m_gpOldW, mX, mY, mZ + 1);
 	Create3DSRV(m_gpU, &m_gpUSRV);
 	Create3DSRV(m_gpV, &m_gpVSRV);
 	Create3DSRV(m_gpW, &m_gpWSRV);
+	Create3DSRV(m_gpOldU, &m_gpOldUSRV);
+	Create3DSRV(m_gpOldV, &m_gpOldVSRV);
+	Create3DSRV(m_gpOldW, &m_gpOldWSRV);
 	Create3DUAV(m_gpU, &m_gpUUAV, mZ);
 	Create3DUAV(m_gpV, &m_gpVUAV, mZ);
 	Create3DUAV(m_gpW, &m_gpWUAV, mZ+1); // yes indeed
+	Create3DUAV(m_gpOldU, &m_gpOldUUAV, mZ);
+	Create3DUAV(m_gpOldV, &m_gpOldVUAV, mZ);
+	Create3DUAV(m_gpOldW, &m_gpOldWUAV, mZ + 1);
 	// Normal-size integer 3D arrays
 	CreateTexture3D(&m_gpCounts, mX, mY, mZ, false, DXGI_FORMAT_R32_UINT);
 	CreateTexture3D(&m_gpClosestParticles, mX, mY, mZ, false, DXGI_FORMAT_R32_UINT);
@@ -101,11 +110,6 @@ void GPFluidSim::AcquireResources() {
 	CreateStructuredBuffer(&m_gpBinnedParticles, sizeof(Particle3), maxParticles);
 	CreateStructuredBufferSRV(m_gpBinnedParticles, &m_gpBinnedParticlesSRV, maxParticles);
 	CreateStructuredBufferUAV(m_gpBinnedParticles, &m_gpBinnedParticlesUAV, maxParticles);
-
-	// Backbuffers
-	CreateStructuredBuffer(&m_gpParticlesTarget, sizeof(Particle3), maxParticles);
-	CreateStructuredBufferSRV(m_gpParticlesTarget, &m_gpParticlesTargetSRV, maxParticles);
-	CreateStructuredBufferUAV(m_gpParticlesTarget, &m_gpParticlesTargetUAV, maxParticles);
 
 	// Staging buffers
 	CreateStructuredBuffer(&m_gpTemp, sizeof(Particle3), maxParticles, true);
@@ -148,6 +152,7 @@ void GPFluidSim::AcquireResources() {
 	CompileAndCreateCS(L"FX\\gpProjectIteration1.hlsl", &m_gpProjectIteration1FX);
 	CompileAndCreateCS(L"FX\\gpProjectIteration2.hlsl", &m_gpProjectIteration2FX);
 	CompileAndCreateCS(L"FX\\gpProjectToVel.hlsl", &m_gpProjectToVelFX);
+	CompileAndCreateCS(L"FX\\gpUpdateParticleVelocities.hlsl", &m_gpUpdateParticleVelocitiesFX);
 
 	CreateConstantBuffer(&m_gpParametersCB, 12 * sizeof(float));
 }
@@ -160,6 +165,7 @@ void GPFluidSim::ReleaseResources() {
 
 	ReleaseCOM(m_gpParametersCB);
 
+	ReleaseCOM(m_gpUpdateParticleVelocitiesFX);
 	ReleaseCOM(m_gpProjectToVelFX);
 	ReleaseCOM(m_gpProjectIteration2FX);
 	ReleaseCOM(m_gpProjectIteration1FX);
@@ -185,9 +191,6 @@ void GPFluidSim::ReleaseResources() {
 	ReleaseCOM(m_gpBinnedParticlesUAV);
 	ReleaseCOM(m_gpBinnedParticlesSRV);
 	ReleaseCOM(m_gpBinnedParticles);
-	ReleaseCOM(m_gpParticlesTargetUAV);
-	ReleaseCOM(m_gpParticlesTargetSRV);
-	ReleaseCOM(m_gpParticlesTarget);
 	ReleaseCOM(m_gpParticlesUAV);
 	ReleaseCOM(m_gpParticlesSRV);
 	ReleaseCOM(m_gpParticles);
@@ -203,12 +206,21 @@ void GPFluidSim::ReleaseResources() {
 	ReleaseCOM(m_gpCountsSRV);
 	ReleaseCOM(m_gpCounts);
 
+	ReleaseCOM(m_gpOldWUAV);
+	ReleaseCOM(m_gpOldVUAV);
+	ReleaseCOM(m_gpOldUUAV);
 	ReleaseCOM(m_gpWUAV);
 	ReleaseCOM(m_gpVUAV);
 	ReleaseCOM(m_gpUUAV);
+	ReleaseCOM(m_gpOldWSRV);
+	ReleaseCOM(m_gpOldVSRV);
+	ReleaseCOM(m_gpOldUSRV);
 	ReleaseCOM(m_gpWSRV);
 	ReleaseCOM(m_gpVSRV);
 	ReleaseCOM(m_gpUSRV);
+	ReleaseCOM(m_gpOldW);
+	ReleaseCOM(m_gpOldV);
+	ReleaseCOM(m_gpOldU);
 	ReleaseCOM(m_gpW);
 	ReleaseCOM(m_gpV);
 	ReleaseCOM(m_gpU);
@@ -496,16 +508,16 @@ void GPFluidSim::Simulate(float dt) {
 	float alpha = MathHelper::Clamp(6 * dt*m_nu*m_CellsPerMeter*m_CellsPerMeter, 0.0f, 1.0f);
 	//alpha = 1.00f;
 	// Ex. For a 64x64 grid with a dt of 1/60, this is 0.0003645, since m_nu is so small (~10^-6)
-	ComputeLevelSet(m_particles);
+	//ComputeLevelSet(m_particles);
 
-	TransferParticlesToGrid(m_particles);
+	//TransferParticlesToGrid(m_particles);
 
 	// Debugging
 	TransferParticlesToGridGPU();
 
 	// Moving complexity here for the moment, this should be refactored out
 	// Store the old grid (...this actually does seem to be the best way)
-	float* m_oldU = new float[(mX + 1)*mY*mZ];
+	/*float* m_oldU = new float[(mX + 1)*mY*mZ];
 	float* m_oldV = new float[mX*(mY + 1)*mZ];
 	float* m_oldW = new float[mX*mY*(mZ + 1)];
 	for (int i = 0; i < (mX + 1)*mY*mZ; i++) {
@@ -516,13 +528,25 @@ void GPFluidSim::Simulate(float dt) {
 	}
 	for (int i = 0; i < mX*mY*(mZ + 1); i++) {
 		m_oldW[i] = m_MW[i];
-	}
+	}*/
+
+	//UploadU();
+	//UploadV();
+	//UploadW();
+
+	// For the GPU side, we'll just do this by copying the new grids to the old grids. The standard
+	// pointer-swapping trick doesn't seem to be applicable here, but maybe there's something we
+	// can do if this becomes a problem?
+	md3dImmediateContext->CopyResource(m_gpOldU, m_gpU);
+	md3dImmediateContext->CopyResource(m_gpOldV, m_gpV);
+	md3dImmediateContext->CopyResource(m_gpOldW, m_gpW);
 
 	// Add gravity
-	AddBodyForces(dt);
+	//AddBodyForces(dt);
 	AddBodyForcesGPU(dt);
 
-	Project(dt);
+	// The bug seems to be in this line (it just zeros out everything, except possibly the back?)
+	//Project(dt);
 	ProjectGPU(dt);
 
 	//---------------------------------------
@@ -532,7 +556,7 @@ void GPFluidSim::Simulate(float dt) {
 	// At the end, we want to have
 	// u^new = alpha*newgrid + (1-alpha)*u_old + (1-alpha)*(newgrid-oldgrid)
 	//       = (1-alpha)*u_old + newgrid-(1-alpha)*oldgrid
-	for (int i = 0; i < (mX + 1)*mY*mZ; i++) {
+	/*for (int i = 0; i < (mX + 1)*mY*mZ; i++) {
 		m_oldU[i] = m_MU[i] - (1.0f - alpha)*m_oldU[i];
 	}
 	for (int i = 0; i < mX*(mY + 1)*mZ; i++) {
@@ -569,7 +593,34 @@ void GPFluidSim::Simulate(float dt) {
 	// ...and clean up :(
 	delete[] m_oldU;
 	delete[] m_oldV;
-	delete[] m_oldW;
+	delete[] m_oldW;*/
+
+	// Finish setting new particle velocities (GPU)
+	// There is a bug between line 540 and here.
+	//UploadU();
+	//UploadV();
+	//UploadW();
+	// u^new = (1-alpha)*u_old + newgrid - (1-alpha)*oldgrid
+	SetParametersConstantBuffer(dt, alpha, 0);
+	md3dImmediateContext->CSSetShader(m_gpUpdateParticleVelocitiesFX, NULL, 0);
+	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpUSRV);
+	md3dImmediateContext->CSSetShaderResources(1, 1, &m_gpVSRV);
+	md3dImmediateContext->CSSetShaderResources(2, 1, &m_gpWSRV);
+	md3dImmediateContext->CSSetShaderResources(3, 1, &m_gpOldUSRV);
+	md3dImmediateContext->CSSetShaderResources(4, 1, &m_gpOldVSRV);
+	md3dImmediateContext->CSSetShaderResources(5, 1, &m_gpOldWSRV);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpParticlesUAV, NULL);
+	md3dImmediateContext->CSSetSamplers(0, 1, &m_gpLinearSampler);
+	md3dImmediateContext->Dispatch(((UINT)m_particles.size() + 63) / 64, 1, 1);
+
+	// Clean up
+	ID3D11ShaderResourceView* nullSRVs6[6] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+	ID3D11UnorderedAccessView* nullUAVs[1] = { nullptr };
+	md3dImmediateContext->CSSetShaderResources(0, 6, nullSRVs6);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
+
+	// Covertly sync everything to the GPU (debugging)
+	//UploadParticles(m_gpParticles);
 
 	//odprintf("Ran a step");
 }
@@ -620,18 +671,13 @@ void GPFluidSim::AdvectGPU(float dt) {
 	// If so, then we would expect a first-order quantization error (before RK3) of at most
 	// 2^(-9) times the maximum velocity?
 
-	UploadU();
-	UploadV();
-	UploadW();
-	UploadParticles(m_gpParticles);
-	// Set inputs and targets for compute shader
+	// Set inputs for compute shader
 	md3dImmediateContext->CSSetShader(m_gpAdvectFX, NULL, 0);
 	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpUSRV);
 	md3dImmediateContext->CSSetShaderResources(1, 1, &m_gpVSRV);
 	md3dImmediateContext->CSSetShaderResources(2, 1, &m_gpWSRV);
-	md3dImmediateContext->CSSetShaderResources(3, 1, &m_gpParticlesSRV);
 	// Targets
-	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpParticlesTargetUAV, NULL);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpParticlesUAV, NULL);
 	// Samplers
 	md3dImmediateContext->CSSetSamplers(0, 1, &m_gpLinearSampler);
 	// Constant buffers
@@ -646,8 +692,8 @@ void GPFluidSim::AdvectGPU(float dt) {
 	md3dImmediateContext->CSSetSamplers(0, 1, nullSamplers);
 	ID3D11UnorderedAccessView* nullUAVs[1] = { nullptr };
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
-	ID3D11ShaderResourceView* nullSRVs[3] = { nullptr, nullptr, nullptr };
-	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs);
+	ID3D11ShaderResourceView* nullSRVs[4] = { nullptr, nullptr, nullptr};
+	md3dImmediateContext->CSSetShaderResources(0, 4, nullSRVs);
 	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
 }
 
@@ -895,18 +941,26 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 
 	md3dImmediateContext->CopyResource(m_gpIntGridStage, m_gpCounts);
 	D3D11_MAPPED_SUBRESOURCE mapped;
-	int* sums = new int[mX*mY*mZ];
 	md3dImmediateContext->Map(m_gpIntGridStage, 0, D3D11_MAP_READ, 0, &mapped); // modified to be shifted - check rest of code
+	int* sums = new int[mZ*mapped.DepthPitch/sizeof(float)]; // not sure if this is secure
 	int* mappedData = reinterpret_cast<int*>(mapped.pData);
-	sums[0] = mappedData[0];
-	for (int i = 1; i < mX*mY*mZ; i++) {
-		sums[i] = mappedData[i - 1] + sums[i - 1]; //hooray
+	int prevSum = 0;
+	for (int z = 0; z < mZ; z++) {
+		for (int y = 0; y < mY; y++) {
+			for (int x = 0; x < mX; x++) {
+				int i = x + (mapped.RowPitch/sizeof(float))*y + (mapped.DepthPitch/sizeof(float))*z;
+				sums[i] = prevSum + mappedData[i];
+				prevSum = sums[i];
+			}
+		}
 	}
 	md3dImmediateContext->Unmap(m_gpIntGridStage, 0);
 	// Put the results into Counts (we'll recover the results in the next shader)
 	assert(sizeof(int) == 4);
 	md3dImmediateContext->UpdateSubresource(m_gpCounts, 0, NULL, reinterpret_cast<void*>(sums),
-		4 * mX, 4 * mX*mY);
+		mapped.RowPitch, mapped.DepthPitch);
+
+	delete[] sums;
 
 	// Finally, put particles into cells.
 	// This modifies gpCounts to become a shifted prefix sum!
@@ -1824,10 +1878,10 @@ void GPFluidSim::ProjectGPU(float dt) {
 	md3dImmediateContext->CSSetUnorderedAccessViews(2, 1, &m_gpWUAV, NULL);
 	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
 	// Clean up 4
-	ID3D11ShaderResourceView* nullSRVs2[2] = { nullptr, nullptr };
+	ID3D11ShaderResourceView* nullSRVs2[2] = { nullptr, nullptr};
 	ID3D11UnorderedAccessView* nullUAVs3[3] = { nullptr, nullptr, nullptr };
-	md3dImmediateContext->CSSetShaderResources(0, 1, nullSRVs2);
-	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs3, NULL);
+	md3dImmediateContext->CSSetShaderResources(0, 2, nullSRVs2);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 3, nullUAVs3, NULL);
 }
 
 void GPFluidSim::PrintDivergence() {

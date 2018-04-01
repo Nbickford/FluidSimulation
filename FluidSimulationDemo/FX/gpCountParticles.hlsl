@@ -5,7 +5,7 @@
 #include "gpParticleStruct.hlsli"
 #include "gpStdParameters.hlsli"
 
-StructuredBuffer<Particle> gInputParticles : register(t3);
+StructuredBuffer<Particle> gInputParticles : register(t0);
 RWTexture3D<uint> gOutputCounts;
 
 [numthreads(64, 1, 1)]

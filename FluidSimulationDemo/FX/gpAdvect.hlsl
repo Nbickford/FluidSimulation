@@ -8,13 +8,12 @@
 // Sampler states (for MAC grids)
 SamplerState sam : register(s0);
 
-// Data sources and outputs
+// Data sources
 Texture3D gMACU : register(t0);
 Texture3D gMACV : register(t1);
 Texture3D gMACW : register(t2);
-
-StructuredBuffer<Particle> gInputParticles : register(t3);
-RWStructuredBuffer<Particle> gOutputParticles : register(u0);
+// Outputs
+RWStructuredBuffer<Particle> gParticles : register(u0);
 
 // MAC Cell interpolation code (p in _worldspace_ coordinates)
 float3 InterpolateMACCell(float3 p) {
@@ -32,7 +31,6 @@ float3 InterpolateMACCell(float3 p) {
 	// (mY-1/2)/mY->1, so we need to add 1/(2mY) to those coordinates. (That's because the
 	// actual pixel values are at half-pixels.)
 
-	// Using mX, mY, mZ = 16:
 	float3 ep = (mM * p + 1) / (mM+1);
 	float3 sp = p + 0.5f / mM;
 	return float3(
@@ -51,7 +49,7 @@ float3 InterpolateMACCell(float3 p) {
 [numthreads(64, 1, 1)]
 void main( uint3 DTid : SV_DispatchThreadID )
 {
-	float3 p = gInputParticles[DTid.x].pos;
+	float3 p = gParticles[DTid.x].pos;
 
 	// We'll use RK3 interpolation!
 	// This was surprisingly difficult to find, but according to an article in GPU Gems 5
@@ -68,6 +66,5 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	// This is just the normal code for mX=mY=mZ=16 at the moment
 	float3 minV = -0.4f / mM;
 	float3 maxV = 1.0f - 0.6f / mM;
-	gOutputParticles[DTid.x].pos = clamp(p + mDT*((2.0 / 9.0)*k1 + (3.0 / 9.0)*k2 + (4.0 / 9.0)*k3), minV, maxV);
-	gOutputParticles[DTid.x].vel = gInputParticles[DTid.x].vel;
+	gParticles[DTid.x].pos = clamp(p + mDT*((2.0 / 9.0)*k1 + (3.0 / 9.0)*k2 + (4.0 / 9.0)*k3), minV, maxV);
 }

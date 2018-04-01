@@ -77,8 +77,11 @@ D3DApp::~D3DApp() {
 	ID3D11Debug *pDebug = nullptr;
 	HR(md3dDevice->QueryInterface(IID_PPV_ARGS(&pDebug)));
 
-	pDebug->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
-	pDebug->Release();
+	if (pDebug != nullptr) {
+
+		pDebug->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
+		pDebug->Release();
+	}
 
 	ReleaseCOM(md3dDevice);
 }
@@ -308,6 +311,7 @@ bool D3DApp::InitDirect3D() {
 		ID3D11InfoQueue *d3dInfoQueue = nullptr;
 		if (SUCCEEDED(d3dDebug->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&d3dInfoQueue)))
 		{
+			//d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_WARNING, true);
 			d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
 			d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, true);
 		}
