@@ -85,11 +85,11 @@ void main(int3 groupThreadID : SV_GroupThreadID,
 
 	// For each neighboring cell, iterate through its particles, finding
 	// the closest one.
-	[unroll]
+	//[unroll]
 	for (int z = -1; z <= 1; z++) {
-		[unroll]
+		//[unroll]
 		for (int y = -1; y <= 1; y++) {
-			[unroll]
+			//[unroll]
 			for (int x = -1; x <= 1; x++) {
 				uint2 offSize = kOffsetSizeCache[mykIndex + x + CacheSize * y + CacheSize * CacheSize*z];
 				uint endEx = offSize.x + offSize.y;

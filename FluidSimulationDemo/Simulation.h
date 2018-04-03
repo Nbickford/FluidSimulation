@@ -47,6 +47,9 @@ private:
 	void UploadU();
 	void UploadV();
 	void UploadW();
+	template<typename T> void UploadTex(ID3D11Texture3D* destTex, T* srcBuf, int sizeX, int sizeY);
+	template<typename T> T* RetrieveTex(ID3D11Texture3D* srcTex, ID3D11Texture3D* stagingTex, int sizeX, int sizeY, int sizeZ);
+	template<typename T> T* RetrieveBuffer(ID3D11Buffer* srcBuf, ID3D11Buffer* stagingBuf, int len); // Retrieves a raw typed buffer from the GPU.
 	void UploadParticles(ID3D11Buffer* bfrPtr);
 
 	// Utility
@@ -269,6 +272,7 @@ private:
 	ID3D11ComputeShader* m_gpProjectIteration2FX;
 	ID3D11ComputeShader* m_gpProjectToVelFX;
 	ID3D11ComputeShader* m_gpUpdateParticleVelocitiesFX;
+	ID3D11ComputeShader* m_gpExtrapolateParticleVelocitiesFX;
 
 	// Parameters constant buffer
 	ID3D11Buffer* m_gpParametersCB;
@@ -278,6 +282,9 @@ private:
 	ID3D11Texture3D* m_gpIntGridStage;
 	// FLOAT grid-size resource
 	ID3D11Texture3D* m_gpFloatGridStage;
+	ID3D11Texture3D* m_gpFloatUStage; // U-size ((mX+1)*mY*mZ) resource
+	ID3D11Texture3D* m_gpFloatVStage; // V-size (mX*(mY+1)*mZ) resource
+	ID3D11Texture3D* m_gpFloatWStage; // W-size (mX*mY*(mZ+1)) resource
 	// Tempporary: Use this for debugging GPU shaders.
 	ID3D11Buffer* m_gpTemp;
 

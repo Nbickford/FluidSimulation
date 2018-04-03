@@ -22,7 +22,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		return;
 	}
 
-	float maxLSRatio = 999.0f;
+	float maxLSRatio = 1000.0f;
 	// Expression for counting # of non-solid neighbors when mM>1
 	// (mM.x-1)-x : takes mM.x-1 to 0
 	// min(p, mM-1-p)-0.5: takes vals to bottom-left octant, shifting

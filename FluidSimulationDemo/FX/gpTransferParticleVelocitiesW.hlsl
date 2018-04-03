@@ -58,7 +58,11 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		}
 	}
 
-	if (accWeight == 0.0f) {
+	float zero_thresh = 0.01f;
+	if (accWeight < zero_thresh) {
+		// Let's match the Simulation3D code as closely as possible, using extrapolation!
+		gMacW[DTid] = 1.#INF;
+		/*
 		// Just take velocity of closest particle
 		Particle p1 = gParticles[gClosestParticles[DTid - uint3(0, 0, 1)]];
 		Particle p2 = gParticles[gClosestParticles[DTid]];
@@ -69,7 +73,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		}
 		else {
 			gMacW[DTid] = p2.vel.z;
-		}
+		}*/
 	}
 	else {
 		// Divide through

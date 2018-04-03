@@ -96,6 +96,9 @@ void GPFluidSim::AcquireResources() {
 	// Staging buffer for counts
 	CreateTexture3D(&m_gpIntGridStage, mX, mY, mZ, true, DXGI_FORMAT_R32_UINT);
 	CreateTexture3D(&m_gpFloatGridStage, mX, mY, mZ, true, DXGI_FORMAT_R32_FLOAT);
+	CreateTexture3D(&m_gpFloatUStage, mX + 1, mY, mZ, true, DXGI_FORMAT_R32_FLOAT);
+	CreateTexture3D(&m_gpFloatVStage, mX, mY + 1, mZ, true, DXGI_FORMAT_R32_FLOAT);
+	CreateTexture3D(&m_gpFloatWStage, mX, mY, mZ + 1, true, DXGI_FORMAT_R32_FLOAT);
 
 
 	// Particles
@@ -153,6 +156,7 @@ void GPFluidSim::AcquireResources() {
 	CompileAndCreateCS(L"FX\\gpProjectIteration2.hlsl", &m_gpProjectIteration2FX);
 	CompileAndCreateCS(L"FX\\gpProjectToVel.hlsl", &m_gpProjectToVelFX);
 	CompileAndCreateCS(L"FX\\gpUpdateParticleVelocities.hlsl", &m_gpUpdateParticleVelocitiesFX);
+	CompileAndCreateCS(L"FX\\gpExtrapolateParticleVelocities.hlsl", &m_gpExtrapolateParticleVelocitiesFX);
 
 	CreateConstantBuffer(&m_gpParametersCB, 12 * sizeof(float));
 }
@@ -161,10 +165,15 @@ void GPFluidSim::ReleaseResources() {
 	ReleaseCOM(m_gpLinearSampler);
 
 	ReleaseCOM(m_gpTemp);
+	ReleaseCOM(m_gpFloatWStage);
+	ReleaseCOM(m_gpFloatVStage);
+	ReleaseCOM(m_gpFloatUStage);
+	ReleaseCOM(m_gpFloatGridStage);
 	ReleaseCOM(m_gpIntGridStage);
 
 	ReleaseCOM(m_gpParametersCB);
 
+	ReleaseCOM(m_gpExtrapolateParticleVelocitiesFX);
 	ReleaseCOM(m_gpUpdateParticleVelocitiesFX);
 	ReleaseCOM(m_gpProjectToVelFX);
 	ReleaseCOM(m_gpProjectIteration2FX);
@@ -355,21 +364,55 @@ void GPFluidSim::UploadParticles(ID3D11Buffer* bfrPtr) {
 }
 
 void GPFluidSim::UploadU() {
-	md3dImmediateContext->UpdateSubresource(m_gpU, 0, 0,
-		reinterpret_cast<const void*>(m_MU),
-		sizeof(float)*(mX + 1), sizeof(float)*(mX + 1)*mY);
+	UploadTex<float>(m_gpU, m_MU, mX + 1, mY);
 }
 
 void GPFluidSim::UploadV() {
-	md3dImmediateContext->UpdateSubresource(m_gpV, 0, 0,
-		reinterpret_cast<const void*>(m_MV),
-		sizeof(float)*mX, sizeof(float)*mX*(mY + 1));
+	UploadTex<float>(m_gpV, m_MV, mX, mY + 1);
 }
 
 void GPFluidSim::UploadW() {
-	md3dImmediateContext->UpdateSubresource(m_gpW, 0, 0,
-		reinterpret_cast<const void*>(m_MW),
-		sizeof(float)*mX, sizeof(float)*mX*mY);
+	UploadTex<float>(m_gpW, m_MW, mX, mY);
+}
+
+template<typename T>
+void GPFluidSim::UploadTex(ID3D11Texture3D* destTex, T* srcBuf, int sizeX, int sizeY) {
+	md3dImmediateContext->UpdateSubresource(destTex, 0, 0,
+		reinterpret_cast<const T*>(srcBuf),
+		sizeof(T)*sizeX, sizeof(T)*sizeX*sizeY);
+}
+
+// Make sure to delete[] the returned array afterwards!
+template<typename T> T* GPFluidSim::RetrieveTex(ID3D11Texture3D* srcTex, ID3D11Texture3D* stagingTex, int sizeX, int sizeY, int sizeZ) {
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	md3dImmediateContext->CopyResource(stagingTex, srcTex);
+	md3dImmediateContext->Map(stagingTex, 0, D3D11_MAP_READ, 0, &mapped);
+	int cStride = mapped.RowPitch / sizeof(T); 
+	int cPitch = mapped.DepthPitch / sizeof(T);
+	T* retArray = new T[sizeX*sizeY*sizeZ];
+	const T* srcArray = reinterpret_cast<const T*>(mapped.pData);
+	for (int z = 0; z < sizeZ; z++) {
+		for (int y = 0; y < sizeY; y++) {
+			for (int x = 0; x < sizeX; x++) {
+				retArray[x + sizeX * (y + sizeY * z)] = srcArray[x + cStride * y + cPitch * z];
+			}
+		}
+	}
+	md3dImmediateContext->Unmap(stagingTex, 0);
+	return retArray;
+}
+
+template<typename T> T* GPFluidSim::RetrieveBuffer(ID3D11Buffer* srcBuf, ID3D11Buffer* stagingBuf, int len) {
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	md3dImmediateContext->CopyResource(stagingBuf, srcBuf);
+	md3dImmediateContext->Map(stagingBuf, 0, D3D11_MAP_READ, 0, &mapped);
+	T* retArray = new T[len];
+	const T* srcArray = reinterpret_cast<const T*>(mapped.pData);
+	for (int i = 0; i < len; i++) {
+		retArray[i] = srcArray[i];
+	}
+	md3dImmediateContext->Unmap(stagingBuf, 0);
+	return retArray;
 }
 
 void GPFluidSim::CompileAndCreateCS(const std::wstring& filename, ID3D11ComputeShader** mFX) {
@@ -501,7 +544,50 @@ void GPFluidSim::Simulate(float dt) {
 	static int frame = 0;
 	frame++;
 
-	AdvectGPU(dt);
+	// DEBUG: Check entire advection step
+	// On iteration 0, this gives about 4 digits of accuracy (0.524442-0.524420).
+	/*UploadParticles(m_gpParticles);
+	UploadU();
+	UploadV();
+	UploadW();*/
+	AdvectGPU(dt); // This is the normal code
+	/*Advect(m_particles, dt);
+	float* flatParticles = RetrieveBuffer<float>(m_gpParticles, m_gpTemp, 6*m_particles.size());
+	float maxDiff = 0.0f;
+	float maxDiffPval = 0.0f;
+	int maxDiffPos = -1;
+	for (int i = 0; i < 6*m_particles.size(); i++) {
+		float pval = 0.0f;
+		switch (i % 6) {
+		case 0:
+			pval = m_particles[i / 6].X;
+			break;
+		case 1:
+			pval = m_particles[i / 6].Y;
+			break;
+		case 2:
+			pval = m_particles[i / 6].Z;
+			break;
+		case 3:
+			pval = m_particles[i / 6].uX;
+			break;
+		case 4:
+			pval = m_particles[i / 6].uY;
+			break;
+		case 5:
+			pval = m_particles[i / 6].uZ;
+			break;
+		}
+		float diff = pval - flatParticles[i];
+		if (fabsf(diff) > fabsf(maxDiff)) {
+			maxDiff = diff;
+			maxDiffPval = pval;
+			maxDiffPos = i;
+		}
+	}
+	odprintf("Advection: max diff (CPU-GPU) = %f (CPU = %f, GPU = %f) at %i.",
+		maxDiff, maxDiffPval, flatParticles[maxDiffPos], maxDiffPos);*/
+	
 
 	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
 	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
@@ -512,7 +598,7 @@ void GPFluidSim::Simulate(float dt) {
 
 	//TransferParticlesToGrid(m_particles);
 
-	// Debugging
+	// Now checked; error of 0.000028 relative to ~0.2.
 	TransferParticlesToGridGPU();
 
 	// Moving complexity here for the moment, this should be refactored out
@@ -684,8 +770,6 @@ void GPFluidSim::AdvectGPU(float dt) {
 	SetParametersConstantBuffer(dt, 0, 0);
 	// Run shader
 	md3dImmediateContext->Dispatch(((UINT)m_particles.size() + 63) / 64, 1, 1);
-	// Run CPU version
-	Advect(m_particles, dt);
 
 	// Clean up
 	ID3D11SamplerState* nullSamplers[1] = { nullptr };
@@ -732,6 +816,11 @@ void GPFluidSim::ComputeLevelSet(const std::vector<Particle3> &particles) {
 	// In this code, we'll use Table 1 of "Fast Occlusion Sweeping" by Singh, Yuksel,
 	// and House, which requires 24 sweeps. (Question: Can we do better? 2 passes of a
 	// Manhattan distance method give 12 sweeps, but is that enough?)
+
+	// Due to initially computing the closest particle for each cell by only looking at the
+	// particles contained within that cell, this code will potentially generate values
+	// of phi up to sqrt(3)/2 - 1/2 = 0.36 away from the true result. This doesn't seem to
+	// make a difference in practice. The GPU code avoids this.
 
 
 	// 1. Compute distances for cells containing particles.
@@ -887,6 +976,9 @@ void GPFluidSim::ComputeLevelSet(const std::vector<Particle3> &particles) {
 }
 
 void GPFluidSim::TransferParticlesToGridGPU() {
+	// DEBUG: Make sure we're working off of the same sets of particles
+	// UploadParticles(m_gpParticles);
+
 	// This method should eventually encapsulate both the ComputeLevelSet
 	// and TransferParticlesToGridMethod.
 
@@ -942,15 +1034,17 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	md3dImmediateContext->CopyResource(m_gpIntGridStage, m_gpCounts);
 	D3D11_MAPPED_SUBRESOURCE mapped;
 	md3dImmediateContext->Map(m_gpIntGridStage, 0, D3D11_MAP_READ, 0, &mapped); // modified to be shifted - check rest of code
-	int* sums = new int[mZ*mapped.DepthPitch/sizeof(float)]; // not sure if this is secure
+	int* sums = new int[mZ*mapped.DepthPitch/sizeof(float)](); // not sure if this is secure
 	int* mappedData = reinterpret_cast<int*>(mapped.pData);
 	int prevSum = 0;
+	int prevData = 0;
 	for (int z = 0; z < mZ; z++) {
 		for (int y = 0; y < mY; y++) {
 			for (int x = 0; x < mX; x++) {
 				int i = x + (mapped.RowPitch/sizeof(float))*y + (mapped.DepthPitch/sizeof(float))*z;
-				sums[i] = prevSum + mappedData[i];
+				sums[i] = prevSum + prevData;
 				prevSum = sums[i];
+				prevData = mappedData[i];
 			}
 		}
 	}
@@ -974,6 +1068,17 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	ID3D11UnorderedAccessView* nullUAVs2[2] = { nullptr, nullptr };
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 2, nullUAVs2, NULL);
 	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
+
+	// Verify that gpCounts is a monotonic function
+#if 0
+	int* readCounts = RetrieveTex<int>(m_gpCounts, m_gpIntGridStage, mX, mY, mZ);
+	for (int i = 1; i < mX*mY*mZ; i++) {
+		if (readCounts[i - 1] > readCounts[i]) {
+			odprintf("Oh no");
+		}
+	}
+	delete[] readCounts;
+#endif
 
 	// OK! So, to get the index of particles at [x,y,z], we access
 	// the previous cell; to get the number of particles, we subtract
@@ -1027,6 +1132,10 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 		1, 3, 5,
 	};
 
+	// Also, make sure we never go backwards
+	/*float* oldGPPhi = RetrieveTex<float>(m_gpPhi, m_gpFloatGridStage, mX, mY, mZ);
+	float* currentGPPhi;*/
+
 	// Luckily, since we use the same parameters as gpComputeClosestParticleNeighbors, we don't
 	// need to issue any calls other than setting shaders and calling dispatches!
 	for (int i = 0; i < numSweepDirections; i++) {
@@ -1066,10 +1175,73 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 			md3dImmediateContext->Dispatch((mX + 7) / 8, (mY + 7) / 8,            1);
 			break;
 		}
+
+		/*
+		currentGPPhi = RetrieveTex<float>(m_gpPhi, m_gpFloatGridStage, mX, mY, mZ);
+
+		// Verify we never go backwards
+		for (int i = 0; i < mX*mY*mZ; i++) {
+			if (currentGPPhi[i] > oldGPPhi[i]) {
+				odprintf("Phi monotonicity condition violated! (%f -> %f at {%i, %i, %i})",
+					oldGPPhi[i], currentGPPhi[i], i%mY, (i / mX) % mZ, (i / mX * mY));
+			}
+		}
+		delete[] oldGPPhi;
+		oldGPPhi = currentGPPhi;*/
 	}
 
 	// Unbind UAVs
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 2, nullUAVs2, NULL);
+
+	// Verify results by running CPU-based version and testing cells containing particles
+	// (A cell contains a particle if the difference in Counts between it and its previous cell is nonzero)
+	// In theory, the entire Phi arrays should actually be identical.
+	/*float* gpuPhi = RetrieveTex<float>(m_gpPhi, m_gpFloatGridStage, mX, mY, mZ);
+	int* gpuCounts = RetrieveTex<int>(m_gpCounts, m_gpIntGridStage, mX, mY, mZ);
+
+	ComputeLevelSet(m_particles);
+	//TransferParticlesToGrid(m_particles);
+
+	float maxDiff = 0.0f;
+	int maxDiffPos = -1;
+	for (int i = 1; i < mX*mY*mZ; i++) {
+		int numParticles = gpuCounts[i] - gpuCounts[i - 1];
+		if (numParticles > 0 || true) {
+			float phigpu = gpuPhi[i];
+			float phicpu = m_Phi[i];
+			if (fabsf(phigpu - phicpu) - fabsf(maxDiff)) {
+				maxDiff = phigpu - phicpu;
+				maxDiffPos = i;
+			}
+		}
+	}
+	int cellX = maxDiffPos % mY;
+	int cellY = (maxDiffPos / mX) % mZ;
+	int cellZ = (maxDiffPos / (mX*mY));
+	odprintf("Max difference in Phi at a cell containing a particle: gpu-cpu = %f (gpu=%f; cpu=%f), pos={%i,%i,%i}",
+		maxDiff, gpuPhi[maxDiffPos], m_Phi[maxDiffPos], cellX, cellY, cellZ);
+
+	// Find particles contained in that cell
+	int numCellParticles = gpuCounts[maxDiffPos] - gpuCounts[maxDiffPos - 1];
+	std::vector<Particle3> foundParticles;
+	for (int i = 0; i < m_particles.size(); i++) {
+		Particle3 particle = m_particles[i];
+		float rX = mX*particle.X;
+		float rY = mY*particle.Y;
+		float rZ = mZ*particle.Z;
+
+		if (cellX - 0.5f < rX && rX < cellX + 0.5f
+			&& cellY - 0.5f < rY && rY < cellY + 0.5f
+			&& cellZ - 0.5f < rZ && rZ < cellZ + 0.5f) {
+			foundParticles.push_back(particle);
+			odprintf("%i: ws pos = {%f, %f, %f}", i, rX, rY, rZ);
+		}
+	}
+
+	int* gpuCPs = RetrieveTex<int>(m_gpClosestParticles, m_gpIntGridStage, mX, mY, mZ);
+
+	odprintf("Found %i particles in cell (should be %i)", foundParticles.size(), numCellParticles);*/
+
 	// Next: Transfer particle velocities to grids and extrapolate velocities.
 	// Each velocity point looks at the particles in its 18 immediate neighbors: [-1 0]
 	// in its direction, and [-1 0 1] in the other two directions.
@@ -1089,12 +1261,73 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpWUAV, NULL);
 	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 1 + 3) / 4);
 
-	// and with that, we're done!
 	// Clean up
 	ID3D11ShaderResourceView* nullSRVs3[3] = { nullptr, nullptr, nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
+
+	// Finally, it turns out we actually need to extrapolate the particle velocities properly
+	// by a single grid cell. We can do this kind of cleverly by implicitly marking invalid
+	// values (above) and running the following shader on each of the arrays:
+	// ...or, we might have had a good method before!
+	md3dImmediateContext->CSSetShader(m_gpExtrapolateParticleVelocitiesFX, NULL, 0);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpUUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 1 + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpVUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3 + 1) / 4, (mZ + 3) / 4);
+
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpWUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3 + 1) / 4);
+
+	// and with that, we're done!
+	// Clean up
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
 	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
+
+	// DEBUG: Check m_gpTransferParticleVelocities*FX by checking that the velocity
+	// fields match along those cells containing particles.
+	// This code now gives a difference of 0.000028 relative to 0.025248 without syncing particles, which is pretty good!
+	/*ComputeLevelSet(m_particles);
+	TransferParticlesToGrid(m_particles);
+	float* gpuU = RetrieveTex<float>(m_gpU, m_gpFloatUStage, mX + 1, mY, mZ);
+	float* gpuV = RetrieveTex<float>(m_gpV, m_gpFloatVStage, mX, mY + 1, mZ);
+	float* gpuW = RetrieveTex<float>(m_gpW, m_gpFloatWStage, mX, mY, mZ + 1);
+	int* gpuCounts = RetrieveTex<int>(m_gpCounts, m_gpIntGridStage, mX, mY, mZ);
+	float maxDiff = 0.0f;
+	int maxDiffPos = -1;
+	for (int i = 1; i < mX*mY*mZ; i++) {
+		if (gpuCounts[i] > gpuCounts[i - 1]) {
+			int px = i % mX;
+			int py = (i / mX) % mZ;
+			int pz = i / (mX*mY);
+			// fix this - replace with corrected coordinates!
+			float gpuXm = gpuU[px   + (mX + 1)*(py + mY * pz)];
+			float gpuXp = gpuU[px+1 + (mX + 1)*(py + mY * pz)];
+			float gpuYm = gpuV[px + mX * (py     + (mY + 1) * pz)];
+			float gpuYp = gpuV[px + mX * (py + 1 + (mY + 1) * pz)];
+			float gpuZm = gpuW[px + mX * (py + mY * pz)];
+			float gpuZp = gpuW[px + mX * (py + mY * (pz + 1))];
+			float cpuXm = U(px, py, pz);
+			float cpuXp = U(px + 1, py, pz);
+			float cpuYm = V(px, py, pz);
+			float cpuYp = V(px, py + 1, pz);
+			float cpuZm = W(px, py, pz);
+			float cpuZp = W(px, py, pz + 1);
+			float diff = std::max({
+				fabsf(cpuXm - gpuXm),
+				fabsf(cpuXp - gpuXp),
+				fabsf(cpuYm - gpuYm),
+				fabsf(cpuYp - gpuYp),
+				fabsf(cpuZm - gpuZm),
+				fabsf(cpuZp - gpuZp) });
+			if (diff > maxDiff) {
+				maxDiff = diff;
+				maxDiffPos = i;
+			}
+		}
+	}
+	odprintf("gpTransferParticleVelocities: max absolute diff was %f at %i {%i, %i, %i}",
+		maxDiff, maxDiffPos, maxDiffPos%mX, (maxDiffPos / mX) % mZ, maxDiffPos / (mX*mY));*/
 }
 
 void GPFluidSim::TransferParticlesToGrid(std::vector<Particle3> &particles) {
@@ -1151,7 +1384,7 @@ void GPFluidSim::TransferParticlesToGrid(std::vector<Particle3> &particles) {
 							*(y > 0 ? alphay : 1.f - alphay)
 							*(z > 0 ? alphaz : 1.f - alphaz);
 						U(ix + x, iy + y, iz + z) += w * particles[i].uX;
-						uAmts[(ix + x) + (mX + 1)*((iy + y) + mZ * (iz + z))] += w;
+						uAmts[(ix + x) + (mX + 1)*((iy + y) + mY * (iz + z))] += w;
 					}
 				}
 			}
@@ -1240,7 +1473,7 @@ void GPFluidSim::TransferParticlesToGrid(std::vector<Particle3> &particles) {
 
 	// EXTRAPOLATE UNKNOWN VELOCITIES
 	// Fixed: We know the velocities of U and V at the edges as well.
-	float zero_thresh = 0.01f;
+	float zero_thresh = 0.01f; // We can actually have cases where a particle has an alpha of 0.003!
 	bool* uValid = new bool[(mX + 1)*mY*mZ];
 	bool* vValid = new bool[mX*(mY + 1)*mZ];
 	bool* wValid = new bool[mX*mY*(mZ + 1)];
@@ -1471,12 +1704,13 @@ void GPFluidSim::AddBodyForcesGPU(float dt) {
 	SetParametersConstantBuffer(dt, 0, 0);
 	md3dImmediateContext->CSSetShader(m_gpAddBodyForcesFX, NULL, 0);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpVUAV, NULL);
-	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 1 + 3) / 4, (mZ + 3) / 4);
 	// Clean up
 	ID3D11UnorderedAccessView* nullUAVs[1] = { nullptr };
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
 
 }
+
 
 void GPFluidSim::Project(float dt) {
 	//... this is basically Chapter 5 of Bridson.
@@ -1689,6 +1923,14 @@ void GPFluidSim::Project(float dt) {
 				}
 			}
 		}
+
+		// DEBUG
+		/*if (iter == numIterations-1) {
+			pFirstIterCPU = new double[MN]();
+			for (int i = 0; i < MN; i++) {
+				pFirstIterCPU[i] = p[i];
+			}
+		}*/
 	}
 
 	// Remove pressure from velocities
@@ -1792,6 +2034,13 @@ void GPFluidSim::ProjectGPU(float dt) {
 	//    The previous step is run with a 2-color checkerboard iteration numIterations (i.e. many) times.
 	// 4. Compute new velocity fields (p, Phi => U, V, W) - can potentially be done in one pass!
 
+	// DEBUG: Transfer U, V, W, and phi to have repeatable results
+	/*SetEdgeVelocitiesToZero();
+	UploadU();
+	UploadV();
+	UploadW();
+	UploadTex<float>(m_gpPhi, m_Phi, mX, mY);*/
+
 	// 1. Compute right-hand-side (vel, dt => b)
 	SetParametersConstantBuffer(dt, 0, 0);
 	md3dImmediateContext->CSSetShader(m_gpProjectComputeRHSFX, NULL, 0);
@@ -1803,6 +2052,24 @@ void GPFluidSim::ProjectGPU(float dt) {
 	// Clean up 1
 	ID3D11ShaderResourceView* nullSRVs3[3] = { nullptr, nullptr, nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
+
+	// Verify step 1 using b from the CPU calculation
+	/*
+	Project(dt);
+	float* bGPU = RetrieveTex<float>(m_gpProjectRHS, m_gpFloatGridStage, mX, mY, mZ);
+	float maxDiff = 0.0f;
+	int maxDiffPos = -1;
+	for (int i = 0; i < mX*mY*mZ; i++) {
+		float diff = (float)(bCPU[i] - bGPU[i]);
+		if (fabsf(diff) > fabsf(maxDiff)) {
+			maxDiff = diff;
+			maxDiffPos = i;
+		}
+	}
+	// This prints out an error of about -0.0000203 relative to 1135.108967, which is pretty much exact.
+	odprintf("Step 1 max diff: CPU-GPU = %f (CPU=%f, GPU = %f) at {%i, %i, %i}",
+		maxDiff, bCPU[maxDiffPos], bGPU[maxDiffPos], maxDiffPos%mY, (maxDiffPos / mX) % mZ, maxDiffPos / (mX*mY));
+		*/
 
 #if 0
 	// Compatibility condition: Our RHS should have a sum of 0.
@@ -1834,6 +2101,24 @@ void GPFluidSim::ProjectGPU(float dt) {
 	ID3D11ShaderResourceView* nullSRVs1[1] = { nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 1, nullSRVs1);
 
+	// Verify diagonal conditions using the CPU code.
+	/*float* diagCoeffsGPU = RetrieveTex<float>(m_gpDiagCoeffs, m_gpFloatGridStage, mX, mY, mZ);
+	float maxRelDiff = 0.0f;
+	int maxDiffPos = -1;
+	for (int i = 0; i < mX*mY*mZ; i++) {
+		// I forgot that the CPU leaves things uninitialized if phi is >=0.
+		if (m_Phi[i] < 0.0f) {
+			float diff = (float)((diagCoeffsCPU[i] - diagCoeffsGPU[i])/diagCoeffsCPU[i]);
+			if (fabsf(diff) > fabsf(maxRelDiff)) {
+				maxRelDiff = diff;
+				maxDiffPos = i;
+			}
+		}
+	}
+	// This prints out a maximum relative error of 0 (88.071958 on the CPU vs. 88.071968 on the GPU).
+	odprintf("Step 1 max diff: (CPU-GPU)/CPU = %f (CPU=%f, GPU = %f) at {%i, %i, %i}",
+		maxRelDiff, diagCoeffsCPU[maxDiffPos], diagCoeffsGPU[maxDiffPos], maxDiffPos%mY, (maxDiffPos / mX) % mZ, maxDiffPos / (mX*mY));*/
+
 	// 3a. Set p to 0. (We pass 0 in through the alpha parameter!)
 	md3dImmediateContext->CSSetShader(m_gpClearFloatArrayFX, NULL, 0);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpProjectPUAV, NULL);
@@ -1853,6 +2138,9 @@ void GPFluidSim::ProjectGPU(float dt) {
 	int numIterations = 100;
 
 	SetParametersConstantBuffer(dt, omega, 0);
+
+	// DEBUG
+	// Project(dt);
 	
 	md3dImmediateContext->CSSetShaderResources(0, 1, &m_gpDiagCoeffsSRV);
 	md3dImmediateContext->CSSetShaderResources(1, 1, &m_gpPhiSRV);
@@ -1863,7 +2151,29 @@ void GPFluidSim::ProjectGPU(float dt) {
 		md3dImmediateContext->Dispatch((mX + 7) / 8, (mY + 3) / 4, (mZ + 3) / 4); // This is because of our 2x1x1 thread assignment
 		md3dImmediateContext->CSSetShader(m_gpProjectIteration2FX, NULL, 0);
 		md3dImmediateContext->Dispatch((mX + 7) / 8, (mY + 3) / 4, (mZ + 3) / 4);
+
+		/*if (i == numIterations-1) {
+			// Compare against p iteration
+			float* pFirstIterGPU = RetrieveTex<float>(m_gpProjectP, m_gpFloatGridStage, mX, mY, mZ);
+			float maxDiff = 0.0f;
+			int maxDiffPos = -1;
+			for (int i = 0; i < mX*mY*mZ; i++) {
+				// I forgot that the CPU leaves things uninitialized if phi is >=0.
+				if (m_Phi[i] < 0.0f) {
+					float diff = (float)(pFirstIterCPU[i] - pFirstIterGPU[i]);
+					if (fabsf(diff) > fabsf(maxDiff)) {
+						maxDiff = diff;
+						maxDiffPos = i;
+					}
+				}
+			}
+			// This prints out a maximum relative error of 0.000000 (88.071958 on the CPU vs. 88.071968 on the GPU at the 2nd iteration,
+			// absolute error 0.00250 = -640.958429 - (-640.958679) at the 100th iteration, which is totally OK)
+			odprintf("Step 1 max diff: (CPU-GPU) = %f (CPU=%f, GPU = %f) at {%i, %i, %i}",
+				maxDiff, pFirstIterCPU[maxDiffPos], pFirstIterGPU[maxDiffPos], maxDiffPos%mY, (maxDiffPos / mX) % mZ, maxDiffPos / (mX*mY));
+		}*/
 	}
+
 	// Clean up 3b
 	ID3D11UnorderedAccessView* nullUAVs1[1] = { nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
@@ -1882,6 +2192,47 @@ void GPFluidSim::ProjectGPU(float dt) {
 	ID3D11UnorderedAccessView* nullUAVs3[3] = { nullptr, nullptr, nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 2, nullSRVs2);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 3, nullUAVs3, NULL);
+
+	// DEBUG: Verify the results of step 4
+	/*Project(dt);
+	float* gpuU = RetrieveTex<float>(m_gpU, m_gpFloatUStage, mX + 1, mY, mZ);
+	float* gpuV = RetrieveTex<float>(m_gpV, m_gpFloatVStage, mX, mY + 1, mZ);
+	float* gpuW = RetrieveTex<float>(m_gpW, m_gpFloatWStage, mX, mY, mZ + 1);
+	float maxUDiff = 0.0f;
+	float maxVDiff = 0.0f;
+	float maxWDiff = 0.0f;
+	int maxUDiffPos = -1;
+	int maxVDiffPos = -1;
+	int maxWDiffPos = -1;
+	for (int i = 0; i < (mX + 1)*mY*mZ; i++) {
+		float diff = (float)(m_MU[i] - gpuU[i]);
+		if (fabsf(diff) > fabsf(maxUDiff)) {
+			maxUDiff = diff;
+			maxUDiffPos = i;
+		}
+	}
+	for (int i = 0; i < mX*(mY + 1)*mZ; i++) {
+		float diff = (float)(m_MV[i] - gpuV[i]);
+		if (fabsf(diff) > fabsf(maxVDiff)) {
+			maxVDiff = diff;
+			maxVDiffPos = i;
+		}
+	}
+	for (int i = 0; i < mX*mY*(mZ + 1); i++) {
+		float diff = (float)(m_MW[i] - gpuW[i]);
+		if (fabsf(diff) > fabsf(maxWDiff)) {
+			maxWDiff = diff;
+			maxWDiffPos = i;
+		}
+	}
+	// This prints out maximum absolute errors of 0.000000 for all three velocity arrays (0.186943-0.186943, -0.0160677-(-0.160677),
+	// and 0.013431-0.013431), which is great!
+	odprintf("Final max diff in U: CPU-GPU = %f (CPU=%f, GPU = %f) at {%i, %i, %i}",
+		maxUDiff, m_MU[maxUDiffPos], gpuU[maxUDiffPos], maxUDiffPos%mY, (maxUDiffPos / (mX+1)) % mZ, maxUDiffPos / ((mX+1)*mY));
+	odprintf("Final max diff in V: CPU-GPU = %f (CPU=%f, GPU = %f) at {%i, %i, %i}",
+		maxVDiff, m_MV[maxVDiffPos], gpuV[maxVDiffPos], maxVDiffPos%(mY+1), (maxUDiffPos / mX) % mZ, maxUDiffPos / (mX*(mY+1)));
+	odprintf("Final max diff in W: CPU-GPU = %f (CPU=%f, GPU = %f) at {%i, %i, %i}",
+		maxUDiff, m_MW[maxUDiffPos], gpuW[maxUDiffPos], maxWDiffPos%mY, (maxUDiffPos / mX) % (mZ+1), maxUDiffPos / (mX*mY));*/
 }
 
 void GPFluidSim::PrintDivergence() {

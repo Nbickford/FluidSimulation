@@ -58,10 +58,12 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		}
 	}
 
-	
-	if (accWeight == 0.0f) {
+	float zero_thresh = 0.01f;
+	if (accWeight < zero_thresh) {
+		// Let's match the Simulation3D code as closely as possible, using extrapolation!
+		gMacU[DTid] = 1.#INF;
 		// Just take velocity of closest particle
-		Particle p1 = gParticles[gClosestParticles[DTid - uint3(1, 0, 0)]];
+		/*Particle p1 = gParticles[gClosestParticles[DTid - uint3(1, 0, 0)]];
 		Particle p2 = gParticles[gClosestParticles[DTid]];
 		float d1 = distance(p1.pos*mM, samplePosition); // we don't subtract mParticleRadius here
 		float d2 = distance(p2.pos*mM, samplePosition);
@@ -70,7 +72,7 @@ void main( uint3 DTid : SV_DispatchThreadID )
 		}
 		else {
 			gMacU[DTid] = p2.vel.x;
-		}
+		}*/
 	}
 	else {
 		// Divide through
