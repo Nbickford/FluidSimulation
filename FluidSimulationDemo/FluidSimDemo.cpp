@@ -231,49 +231,6 @@ void BoxApp::UpdateScene(float dt) {
 	UpdateView();
 
 	fluidSim.Simulate(dt);
-
-	// Update the texture on the quad - in this case, using a nice sine wave!
-	// This is obviously not the best way to do this, but this is just to get to the
-	// state where this is possible.
-	/*const int bpp = 4;
-	char* newImg = new char[bpp*mTexWidth*mTexHeight];
-	for (int y = 0; y < mTexHeight; y++) {
-	for (int x = 0; x < mTexWidth; x++) {
-	// Since our texture is RGBA, we store the values in ABGR format.
-	float uvX = static_cast<float>(x)/mTexWidth;
-	float uvY = 1.0f - static_cast<float>(y)/mTexHeight;
-	float r = 0.5f - 0.5f*cosf(XM_PI*uvX);
-	float g = 0.5f - 0.5f*cosf(XM_PI*uvY);
-	float b = 0.5f + 0.5f*sinf(totalTime);
-	newImg[bpp*(x + mTexWidth*y) + 3] = (char)255; // A
-	newImg[bpp*(x + mTexWidth*y) + 2] = (char)(255 * b); // B
-	newImg[bpp*(x + mTexWidth*y) + 1] = (char)(255 * g); // G
-	newImg[bpp*(x + mTexWidth*y) + 0] = (char)(255 * r); // R
-	}
-	}
-	// Update subresource
-	md3dImmediateContext->UpdateSubresource(mDiffuseMap, 0, NULL, (const void*)newImg, bpp*mTexWidth, 0);
-	// Generate mipmaps
-	md3dImmediateContext->GenerateMips(mDiffuseMapSRV);
-	// Clean up
-	delete[] newImg; // hopefully this is ok*/
-
-	// Update the points from the fluid simulation
-	mPointCount = (UINT)fluidSim.m_particles.size();
-	Point* newPoints = new Point[mPointCount];
-	for (UINT i = 0; i < mPointCount; i++) {
-		newPoints[i].Pos = XMFLOAT3(2.0f*(fluidSim.m_particles[i].X + 0.5f / mTexWidth) - 1.0f,
-			2.0f*(fluidSim.m_particles[i].Y + 0.5f / mTexHeight) - 1.0f,
-			2.0f*(fluidSim.m_particles[i].Z + 0.5f / mTexDepth) - 1.0f);
-	}
-
-	D3D11_MAPPED_SUBRESOURCE mappedResource;
-	ZeroMemory(&mappedResource, sizeof(D3D11_MAPPED_SUBRESOURCE));
-	md3dImmediateContext->Map(mPointVB, 0, D3D11_MAP_WRITE_DISCARD, 0, &mappedResource);
-	memcpy(mappedResource.pData, newPoints, sizeof(Point)*mPointCount);
-	md3dImmediateContext->Unmap(mPointVB, 0);
-
-	delete[] newPoints;
 }
 
 void BoxApp::DrawScene() {
@@ -335,21 +292,17 @@ void BoxApp::DrawScene() {
 	mDebugPointsFXWorld->SetMatrix(reinterpret_cast<float*>(&world));
 	mDebugPointsFXViewProj->SetMatrix(reinterpret_cast<float*>(&viewProj));
 	mDebugPointsFXParticlesSRV->SetResource(fluidSim.m_gpParticlesSRV);
-	md3dImmediateContext->IASetIndexBuffer(NULL, DXGI_FORMAT_UNKNOWN, 0);
 
-	/*md3dImmediateContext->IASetVertexBuffers(0, 1, &mPointVB,
-		&stride, &offset);
-	md3dImmediateContext->IASetIndexBuffer(mPointIB,
-		DXGI_FORMAT_R32_UINT, 0);*/
+	// We don't need to set any index buffers - all of the debug particles are drawn from the GPU!
+	md3dImmediateContext->IASetIndexBuffer(NULL, DXGI_FORMAT_UNKNOWN, 0);
 
 	mDebugPointsTech->GetDesc(&techDesc);
 
 	for (UINT p = 0; p < techDesc.Passes; ++p) {
 		mDebugPointsTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
 
-		UINT numIndices = (UINT)fluidSim.m_particles.size();
+		UINT numIndices = fluidSim.numParticles;
 		md3dImmediateContext->Draw(numIndices, 0);
-		//md3dImmediateContext->DrawIndexed(numIndices, 0, 0);
 	}
 
 	// Unbind SRV 0
