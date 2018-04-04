@@ -55,18 +55,15 @@ private:
 	void BuildResources();
 private:
 	// ALGORITHM PARAMETERS
-	const int mTexWidth = 16;
-	const int mTexHeight = 16;
-	const int mTexDepth = 16;
+	const int mTexWidth = 32;
+	const int mTexHeight = 32;
+	const int mTexDepth = 32;
 
 	// INPUT LAYOUTS
 	// Layout: Position {x32, y32, z32}
 	//         Texture  {u32, v32}
 	// Matches definition of struct Vertex above.
 	ID3D11InputLayout* mInputLayout;
-	// Layout: Position {x32, y32, z32}
-	// Matches definition of struct Point above.
-	ID3D11InputLayout* mPointsInputLayout;
 
 	// MESHES
 	ID3D11Buffer* mQuadVB; // Vertex buffer for the textured quad
@@ -87,18 +84,15 @@ private:
 	ID3DX11EffectMatrixVariable* mfxWorldViewProj;
 	ID3DX11EffectShaderResourceVariable* mfxDiffuseMap;
 
-	ID3DX11Effect* mDebugPointsFX;
-	ID3DX11EffectTechnique* mDebugPointsTech;
-	ID3DX11EffectMatrixVariable* mDebugPointsFXWorld;
-	ID3DX11EffectMatrixVariable* mDebugPointsFXViewProj;
-	ID3DX11EffectScalarVariable* mDebugPointsFXPtSize;
-	ID3DX11EffectShaderResourceVariable* mDebugPointsFXParticlesSRV;
+	ID3DX11Effect* mPSRenderFX;
+	ID3DX11EffectTechnique* mPSRenderTech;
+	ID3DX11EffectMatrixVariable* mPSRenderView;
+	ID3DX11EffectShaderResourceVariable* mPSRenderPhi;
+	ID3DX11EffectShaderResourceVariable* mPSRenderOffsets;
+	ID3DX11EffectShaderResourceVariable* mPSRenderParticles;
 
-	XMFLOAT4X4 mWorld;
 	XMFLOAT4X4 mView;
-	XMFLOAT4X4 mProj;
 
-	float mZoomFactor;
 	float mCamPhi; // from azimuth
 	float mCamTheta;
 
@@ -125,7 +119,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 // Constructor
 BoxApp::BoxApp(HINSTANCE hInstance)
 	:D3DApp(hInstance), mQuadVB(0), mQuadIB(0), mFX(0), mTech(0), mInputLayout(0),
-	mZoomFactor(8.0f), mCamPhi(3.1415926535f / 2.0f), mCamTheta(0.0f),
+	mCamPhi(3.1415926535f / 2.0f), mCamTheta(0.0f),
 	mDiffuseMap(0), mDiffuseMapSRV(0),
 	fluidSim(mTexWidth, mTexHeight, mTexDepth, (float)mTexWidth)
 {
@@ -135,9 +129,7 @@ BoxApp::BoxApp(HINSTANCE hInstance)
 	mLastMousePos.y = 0;
 
 	XMMATRIX I = XMMatrixIdentity();
-	XMStoreFloat4x4(&mWorld, I);
 	XMStoreFloat4x4(&mView, I);
-	XMStoreFloat4x4(&mProj, I);
 }
 
 // Destructor
@@ -155,11 +147,10 @@ BoxApp::~BoxApp() {
 
 	// Release effects
 	ReleaseCOM(mFX);
-	ReleaseCOM(mDebugPointsFX);
+	ReleaseCOM(mPSRenderFX);
 
 	// Release input layouts
 	ReleaseCOM(mInputLayout);
-	ReleaseCOM(mPointsInputLayout);
 	// TODO(neil): Why not release mTech?
 }
 
@@ -201,28 +192,16 @@ void BoxApp::UpdateView() {
 	XMVECTOR target = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
 	XMVECTOR up = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 
-	XMMATRIX V = XMMatrixLookAtLH(pos, target, up);
+	XMMATRIX V = XMMatrixLookAtLH(pos, target, up); // TODO: Fix this
+	V = XMMatrixInverse(nullptr, V); // Transform back to the matrix W (DX11, pg. 164)
+	// V now stores 90* FOVs in the horizontal and vertical axes; we want to change this
+	// to be a more reasonable FOV in the vertical axis and match the screen size in the horizontal axis.
+	float vFOV = 60.0;
+	// tan(vFOV*/2) = new length of vertical axis
+	float vScale = tanf(0.5f*vFOV*MathHelper::Pi / 180.0f);
+	float hScale = (vScale*mClientWidth) / mClientHeight;
+	V = XMMatrixMultiply(XMMatrixScaling(hScale, vScale, 1.0f), V);
 	XMStoreFloat4x4(&mView, V);
-
-	// We want the quad in the center, which measures [-1,1]x[-1,1] in world space, to cover
-	// exactly (times zoomFactor) mTexWidthxmTexHeight pixels.
-	// so 2/[world screen width] = mZoomFactor*mTexWidth/[pixel screen width].
-	// TODO: BUG: If we zoom in too far, the view height becomes too small, which
-	// causes an assertion failure in the XMMath library.
-	// This also fails when the client width or height is equal to 0, which occurs
-	// whenever we minimize the window.
-	float verticalFOV = MathHelper::Pi*0.5f;
-	//float horizontalFOV = 2.0f*atanf((mClientWidth / mClientHeight)*tanf(verticalFOV / 2.0f));
-	XMMATRIX P = XMMatrixPerspectiveFovLH(verticalFOV, mClientWidth / (float)mClientHeight, 0.1f, 10.0f);
-	/*XMMATRIX P = XMMatrixOrthographicLH((2.0f*mClientWidth) / (mZoomFactor*mTexWidth),
-	(2.0f*mClientHeight) / (mZoomFactor*mTexHeight),
-	0.5f,
-	2.0f);*/
-	XMStoreFloat4x4(&mProj, P);
-
-	// Interesting problem: at zoom factor 1, this fails when mClientWidth is odd.
-	// I think this is because the centers of the texels of the quad no longer match
-	// with the centers of the pixels of the screen.
 }
 
 void BoxApp::UpdateScene(float dt) {
@@ -236,79 +215,38 @@ void BoxApp::UpdateScene(float dt) {
 void BoxApp::DrawScene() {
 	// Clear render targets
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView,
-		reinterpret_cast<const float*>(&Colors::Black));
+		reinterpret_cast<const float*>(&Colors::LightSteelBlue));
 	md3dImmediateContext->ClearDepthStencilView(mDepthStencilView,
 		D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-	// Set input layout and bind vertex buffers
-	md3dImmediateContext->IASetInputLayout(mInputLayout);
-	md3dImmediateContext->IASetPrimitiveTopology(
-		D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	UINT stride = sizeof(Vertex);
-	UINT offset = 0;
-	md3dImmediateContext->IASetVertexBuffers(0, 1, &mQuadVB,
-		&stride, &offset);
-	md3dImmediateContext->IASetIndexBuffer(mQuadIB,
-		DXGI_FORMAT_R32_UINT, 0);
-
-	// Set constants
-	XMMATRIX world = XMLoadFloat4x4(&mWorld);
-	XMMATRIX view = XMLoadFloat4x4(&mView);
-	XMMATRIX proj = XMLoadFloat4x4(&mProj);
-	XMMATRIX viewProj = view * proj;
-	XMMATRIX worldViewProj = world * view*proj;
-
-	mfxWorldViewProj->SetMatrix(reinterpret_cast<float*>(&worldViewProj));
-	mfxDiffuseMap->SetResource(mDiffuseMapSRV);
-
-	D3DX11_TECHNIQUE_DESC techDesc;
-	mTech->GetDesc(&techDesc);
-	for (UINT p = 0; p < techDesc.Passes; ++p) {
-		mTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-
-		// 6 indices for the quad
-		md3dImmediateContext->DrawIndexed(6, 0, 0);
-	}
-
-	// Draw debug points
-	// in this case, as triangles!
-	stride = sizeof(Point);
-	offset = 0;
-
-	//md3dImmediateContext->IASetInputLayout(mPointsInputLayout);
 	// See https://msdn.microsoft.com/en-us/library/windows/desktop/bb232912(v=vs.85).aspx
 	md3dImmediateContext->IASetInputLayout(NULL);
 	md3dImmediateContext->IASetPrimitiveTopology(
-		D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+		D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-	// Each point should be about 1/4 of a grid cell size, so:
-	// (total width)/(4*(number of cells))
-	// However, from the projection calculation above, we should also have that since [-1,1] in x in world-space covers
-	// zoomFactor*mTexWidth pixels (magnification of (zoomFactor*mTexWidth)/2), the point size should also be at least 
-	// 2/(zoomFactor*mTexWidth).
-	mDebugPointsFXPtSize->SetFloat(max(2.0f / (4.0f*mTexWidth),
-		2.0f / (mZoomFactor*mTexWidth))); // NOTE: Assumes mTexWidth==mTexHeight!
-	mDebugPointsFXWorld->SetMatrix(reinterpret_cast<float*>(&world));
-	mDebugPointsFXViewProj->SetMatrix(reinterpret_cast<float*>(&viewProj));
-	mDebugPointsFXParticlesSRV->SetResource(fluidSim.m_gpParticlesSRV);
+	// Set render parameters here
+	D3DX11_TECHNIQUE_DESC techDesc;
+	mPSRenderView->SetMatrix(reinterpret_cast<float*>(&mView));
+	mPSRenderPhi->SetResource(fluidSim.m_gpPhiSRV);
+	mPSRenderOffsets->SetResource(fluidSim.m_gpCountsSRV);
+	mPSRenderParticles->SetResource(fluidSim.m_gpBinnedParticlesSRV);
 
-	// We don't need to set any index buffers - all of the debug particles are drawn from the GPU!
+	// We don't need to set any index buffers - all three triangle vertices are drawn from the GPU1
 	md3dImmediateContext->IASetIndexBuffer(NULL, DXGI_FORMAT_UNKNOWN, 0);
 
-	mDebugPointsTech->GetDesc(&techDesc);
+	mPSRenderTech->GetDesc(&techDesc);
 
 	for (UINT p = 0; p < techDesc.Passes; ++p) {
-		mDebugPointsTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
-
-		UINT numIndices = fluidSim.numParticles;
-		md3dImmediateContext->Draw(numIndices, 0);
+		mPSRenderTech->GetPassByIndex(p)->Apply(0, md3dImmediateContext);
+		// Draw the triangle
+		md3dImmediateContext->Draw(3, 0);
 	}
 
-	// Unbind SRV 0
-	mDebugPointsFXParticlesSRV->SetResource(NULL);
-	mDebugPointsTech->GetPassByIndex(0)->Apply(0, md3dImmediateContext);
-
+	// Unbind SRVs here
+	mPSRenderPhi->SetResource(NULL);
+	mPSRenderOffsets->SetResource(NULL);
+	mPSRenderParticles->SetResource(NULL);
+	mPSRenderTech->GetPassByIndex(0)->Apply(0, md3dImmediateContext);
 	HR(mSwapChain->Present(0, 0));
 }
 
@@ -325,31 +263,26 @@ void BoxApp::OnMouseUp(WPARAM btnState, int x, int y) {
 }
 
 void BoxApp::OnMouseMove(WPARAM btnState, int x, int y) {
-	// Orthographic (2D) version
+	// Rotational (3D) version
 	if ((btnState & MK_LBUTTON) != 0) {
-		// Each pixel corresponds to one screen pixel.
-		// We know that the projection matrix satisfies the property
-		// [0,yWorldMax,0,0]P = [0,1,...,...]
-		// so moving mClientHeight/2 pixels up corresponds to moving up yWorldMax world units.
-		// Since P is of the form
-		// [m11,   0,  0, 0]
-		// [0  , m22,  0, 0]
-		// [0  ,   0,...,..]
-		// [0  ,   0,...,..]
-		// we have yWorldMax = 1/m22, and we can compute the appropriate pixel->world scaling factor.
-		float p2WorldSF = 2.0f / (mProj._22*mClientHeight);
-		float dx = p2WorldSF * static_cast<float>(x - mLastMousePos.x);
-		float dy = p2WorldSF * static_cast<float>(y - mLastMousePos.y);
+		// Make each pixel correspond to a quarter of a degree.
+		float dx = XMConvertToRadians(
+			0.25f*static_cast<float>(x - mLastMousePos.x));
+		float dy = XMConvertToRadians(
+			0.25f*static_cast<float>(y - mLastMousePos.y));
+
+		// Update angles based on input to orbit camera around box.
 		mCamTheta -= dx;
 		mCamPhi -= dy;
+
+		// Restrict the angle mPhi.
+		mCamPhi = MathHelper::Clamp(mCamPhi, 0.1f, MathHelper::Pi - 0.1f);
 	}
 	if ((btnState & MK_RBUTTON) != 0) {
 		// We just make each pixel correspond to some small factor.
 		// Say, a^(mClientWidth pixels) = 512, so
 		float dx = static_cast<float>(x - mLastMousePos.x);
 		float dy = static_cast<float>(y - mLastMousePos.y);
-		float fac = powf(512.0f, (dx - dy) / mClientWidth);
-		mZoomFactor *= fac;
 	}
 	/*if ((btnState & MK_LBUTTON) != 0) {
 	// Make each pixel correspond to a quarter of a degree.
@@ -385,17 +318,18 @@ void BoxApp::OnCharacterKey(char keyCode) {
 	switch (keyCode) {
 	case '+':
 	case '=': // b/c user doesn't think they need to hold down shift
-		mZoomFactor *= 2.0f;
+		// actually nothing now
 		break;
 	case '-':
-		mZoomFactor *= 0.5f;
+		// actually nothing now
 		break;
 	case '0':
-		mZoomFactor = 1.0f;
-		mCamPhi = 3.14159f / 2.0f; // TODO: fix this for the case of non-even windows
+		// Reset view
+		mCamPhi = 3.14159f / 2.0f;
 		mCamTheta = 0.0f;
 		break;
 	case 'r':
+		// Reset simulation
 		fluidSim.ResetSimulation();
 		break;
 		//default:
@@ -569,22 +503,23 @@ void BoxApp::BuildFX() {
 		"gDiffuseMap")->AsShaderResource();
 
 	//--------------------------------
-	// DEBUG POINTS FX
+	// FULL RENDER FX
 	//--------------------------------
-	compiledShader = d3dUtil::CompileShader(L"FX\\DebugPointsQuadsCS.fx", nullptr, "", "fx_5_0");
+	compiledShader = d3dUtil::CompileShader(L"FX\\Render.fx", nullptr, "", "fx_5_0");
 
 	HR(D3DX11CreateEffectFromMemory(
 		compiledShader->GetBufferPointer(),
 		compiledShader->GetBufferSize(),
-		0, md3dDevice, &mDebugPointsFX));
+		0, md3dDevice, &mPSRenderFX));
 
 	ReleaseCOM(compiledShader);
 
-	mDebugPointsTech = mDebugPointsFX->GetTechniqueByName("ColorTech");
-	mDebugPointsFXPtSize = mDebugPointsFX->GetVariableByName("gPtSize")->AsScalar();
-	mDebugPointsFXWorld = mDebugPointsFX->GetVariableByName("gWorld")->AsMatrix();
-	mDebugPointsFXViewProj = mDebugPointsFX->GetVariableByName("gViewProj")->AsMatrix();
-	mDebugPointsFXParticlesSRV = mDebugPointsFX->GetVariableByName("gParticles")->AsShaderResource();
+	mPSRenderTech = mPSRenderFX->GetTechniqueByName("ColorTech");
+	// Get variables here
+	mPSRenderView = mPSRenderFX->GetVariableByName("mView")->AsMatrix();
+	mPSRenderPhi = mPSRenderFX->GetVariableByName("gPhi")->AsShaderResource();
+	mPSRenderOffsets = mPSRenderFX->GetVariableByName("gOffsets")->AsShaderResource();
+	mPSRenderParticles = mPSRenderFX->GetVariableByName("gParticles")->AsShaderResource();
 }
 
 void BoxApp::BuildVertexLayout() {
@@ -603,20 +538,5 @@ void BoxApp::BuildVertexLayout() {
 	HR(md3dDevice->CreateInputLayout(vertexDesc, 2,
 		passDesc.pIAInputSignature,
 		passDesc.IAInputSignatureSize, &mInputLayout));
-
-	//----------------------------------
-	// POINTS
-	//----------------------------------
-	D3D11_INPUT_ELEMENT_DESC pointsDesc[] =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,
-		D3D11_INPUT_PER_VERTEX_DATA, 0 }
-	};
-
-	// Create the input layout
-	mDebugPointsTech->GetPassByIndex(0)->GetDesc(&passDesc);
-	HR(md3dDevice->CreateInputLayout(pointsDesc, 1,
-		passDesc.pIAInputSignature,
-		passDesc.IAInputSignatureSize, &mPointsInputLayout));
 }
 #endif

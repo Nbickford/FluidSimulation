@@ -617,6 +617,9 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	// I figure I'll modify this section to run on the GPU if it turns out to be a significant
 	// performance factor.
 
+	// Update: According to RenderDoc, the Map/[prefix sum]/Unmap step here now takes up about 52ms/214ms for a 64^3 grid,
+	// which is significant.
+
 	md3dImmediateContext->CopyResource(m_gpIntGridStage, m_gpCounts);
 	D3D11_MAPPED_SUBRESOURCE mapped;
 	md3dImmediateContext->Map(m_gpIntGridStage, 0, D3D11_MAP_READ, 0, &mapped); // modified to be shifted - check rest of code
@@ -755,6 +758,8 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	// Each velocity point looks at the particles in its 18 immediate neighbors: [-1 0]
 	// in its direction, and [-1 0 1] in the other two directions.
 	// See shader code for more information.
+	// Update: According to RenderDoc, these three draw calls take up 95.9ms/214.5ms on a 64^3 grid.
+	// That might just be due to the incredible number of particles each cell needs to go through (~144)?
 	md3dImmediateContext->CSSetShader(m_gpTransferParticleVelocitiesUFX, NULL, 0);
 	ID3D11ShaderResourceView* csSRVs3[3] = { m_gpCountsSRV, m_gpBinnedParticlesSRV, m_gpClosestParticlesSRV };
 	md3dImmediateContext->CSSetShaderResources(0, 3, csSRVs3);
