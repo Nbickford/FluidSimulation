@@ -160,6 +160,7 @@ private:
 	ID3D11ComputeShader* m_gpProjectToVelFX;
 	ID3D11ComputeShader* m_gpUpdateParticleVelocitiesFX;
 	ID3D11ComputeShader* m_gpExtrapolateParticleVelocitiesFX;
+	ID3D11ComputeShader* m_gpBlurFX;
 
 	// Parameters constant buffer
 	ID3D11Buffer* m_gpParametersCB;

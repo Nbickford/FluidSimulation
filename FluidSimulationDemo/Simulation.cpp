@@ -210,6 +210,7 @@ void GPFluidSim::AcquireResources() {
 	CompileAndCreateCS(L"FX\\gpProjectToVel.hlsl", &m_gpProjectToVelFX);
 	CompileAndCreateCS(L"FX\\gpUpdateParticleVelocities.hlsl", &m_gpUpdateParticleVelocitiesFX);
 	CompileAndCreateCS(L"FX\\gpExtrapolateParticleVelocities.hlsl", &m_gpExtrapolateParticleVelocitiesFX);
+	CompileAndCreateCS(L"FX\\gpBlur.hlsl", &m_gpBlurFX);
 
 	CreateConstantBuffer(&m_gpParametersCB, 12 * sizeof(float));
 }
@@ -226,6 +227,7 @@ void GPFluidSim::ReleaseResources() {
 
 	ReleaseCOM(m_gpParametersCB);
 
+	ReleaseCOM(m_gpBlurFX);
 	ReleaseCOM(m_gpExtrapolateParticleVelocitiesFX);
 	ReleaseCOM(m_gpUpdateParticleVelocitiesFX);
 	ReleaseCOM(m_gpProjectToVelFX);
@@ -490,6 +492,7 @@ void GPFluidSim::SetParametersConstantBuffer(float dt, float alpha, int slot) {
 void GPFluidSim::Simulate(float dt) {
 	// Clamp maximum dt
 	dt = MathHelper::Clamp(dt, 0.0f, 1.0f / 15.0f);
+	dt /= 16.0f;
 
 	// Iterate frame counter
 	static int frame = 0;
@@ -530,6 +533,12 @@ void GPFluidSim::Simulate(float dt) {
 	ID3D11ShaderResourceView* nullSRVs6[6] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
 	ID3D11UnorderedAccessView* nullUAVs[1] = { nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 6, nullSRVs6);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
+
+	// Finally, blur Phi for rendering:
+	md3dImmediateContext->CSSetShader(m_gpBlurFX, NULL, 0);
+	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpPhiUAV, NULL);
+	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
 }
 
