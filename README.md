@@ -1,7 +1,9 @@
 # Fluid Simulation Technical Demo
 A hybrid real-time GPU-based fluid simulator and renderer written in base C++ and Direct3D 11.
 
-<div style="text-align:center"><img src ="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimHeader.gif" /></div>
+<p align="center">
+  <img src="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimHeader.gif">
+</p>
 
 Some notes about this program:
 - Implements hybrid PIC/FLIP simulation using a value of \alpha directly driven by the kinematic viscosity of water
