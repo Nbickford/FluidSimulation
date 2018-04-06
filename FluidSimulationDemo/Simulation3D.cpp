@@ -257,8 +257,7 @@ void FluidSim3::ComputeLevelSet(const std::vector<Particle3> &particles) {
 	// using the kernel
 	// sqrt((x-x0)^2+(y-y0)^2)-m_pRadius.
 
-	// Woah, fast sweeping has a Wikipedia article! But it's a stub.
-	// Bridson p. 126 says AKPG07 has a practical fast /marching/ method
+	// Bridson p. 126 says AKPG07 has a practical fast /marching/ method.
 	// However, chapter 4.3 (pg 49-51) has pseudocode for the method we'll be using,
 	// which is based on algorithm 4 in [Tsa02],
 	// "Rapid and Accurate Computation of the Distance Function using Grids".
