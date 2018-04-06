@@ -40,6 +40,7 @@ Our reference text was this simulation was Bridson's *Fluid Simulation for Compu
 - Because Bridson's preferred MIC(0) preconditioner is nontrivial to implement in a highly parallel way, we instead used successive over-relaxation using a checkerboard update pattern (see [Erik Arnebäck's article](https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html) on using this same technique for more general topologies) to solve the linear system.
 - We constructed a model for the optimal value of the SOR parameter ω to use by sampling the convergence rate of SOR for thousands of values of ω across different grid sizes ([Simulation3D.cpp#936](https://github.com/Nbickford/FluidSimulation/blob/master/FluidSimulationDemo/Simulation3D.cpp#L936)). With this value of ω, we get an asymptotic convergence rate of about 1/0.85≈1.17. 
 
+<p align="center">
   <img src="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/omegaChart700.png">
 </p>
 
