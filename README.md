@@ -1,6 +1,6 @@
 # A Fluid Simulation Technical Demo
 This is a hybrid real-time GPU-based fluid simulator and renderer written in base C++ and Direct3D 11.
-![Header gif](./Markdown/fluidSimHeader.gif)
+![Header gif](https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimHeader.gif)
 Some notes about this program:
 - Implements hybrid PIC/FLIP simulation using a value of \alpha directly driven by the kinematic viscosity of water
 - Runs on base Direct3D 11, so also useful as a relatively minimal reference for setting up such a visualization
@@ -45,7 +45,7 @@ Technical Details
 **Projection:** SOR with ghost fluids
 **Rendering:** 2-bounce water reflection and refraction, plus four bounces of internal glass refraction. Using [iq's smoothstep trick](https://www.shadertoy.com/view/XsfGDn) to mildly smooth normals at expense of blockiness.
 
-![Inline gif](./Markdown/fluidsimLinebreak.gif)
+![Inline gif](https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimLinebreak.gif)
 
 Things that Were Not Implemented
 --------------------------------
