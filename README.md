@@ -24,13 +24,13 @@ Make sure to select a discrete graphics card (on most machines, right-click Flui
 
 Controls
 --------
-Left mouse button: Rotate camera.
+**Left mouse button:** Rotate camera.
 
-Right mouse button: Zoom in/out.
+**Right mouse button:** Zoom in/out.
 
-+/-: Speed up/slow down time.
+**+/-:** Speed up or slow down the rate of time in the simulation.
 
-r: Reset simulation.
+**r:** Reset simulation.
 
 Neat things about this implementation
 -------------------------------------
@@ -39,6 +39,9 @@ Our reference text was this simulation was Bridson's *Fluid Simulation for Compu
 **Projection**
 - Because Bridson's preferred MIC(0) preconditioner is nontrivial to implement in a highly parallel way, we instead used successive over-relaxation using a checkerboard update pattern (see [Erik Arnebäck's article](https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html) on using this same technique for more general topologies) to solve the linear system.
 - We constructed a model for the optimal value of the SOR parameter ω to use by sampling the convergence rate of SOR for thousands of values of ω across different grid sizes ([Simulation3D.cpp#936](https://github.com/Nbickford/FluidSimulation/blob/master/FluidSimulationDemo/Simulation3D.cpp#L936)). With this value of ω, we get an asymptotic convergence rate of about 1/0.85≈1.17. 
+
+  <img src="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/omegaChart700.png">
+</p>
 
 **Rendering**
 - We use exactly one triangle to render the entire final frame (reflections, refraction, sky, and all) by implementing a [Shadertoy-style](https://shadertoy.com) raytracer inside a pixel shader for a full-screen triangle using both distance fields and traditional raytracing techniques.
