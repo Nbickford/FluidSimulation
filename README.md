@@ -1,27 +1,34 @@
-# A Fluid Simulation Technical Demo
-This is a hybrid real-time GPU-based fluid simulator and renderer written in base C++ and Direct3D 11.
-![Header gif](https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimHeader.gif)
+# Fluid Simulation Technical Demo
+A hybrid real-time GPU-based fluid simulator and renderer written in base C++ and Direct3D 11.
+
+<div style="text-align:center"><img src ="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimHeader.gif" /></div>
+
 Some notes about this program:
 - Implements hybrid PIC/FLIP simulation using a value of \alpha directly driven by the kinematic viscosity of water
+
 - Runs on base Direct3D 11, so also useful as a relatively minimal reference for setting up such a visualization
+
 - Does nearly all fluid simulation completely in parallel on the GPU using DirectCompute
+
 - Simulates 900,000 particles at thirty frames a second, on at least one laptop.
+
 [Try it out!](https://github.com/Nbickford/FluidSimulation/releases)
 
 Running the Demo
 ----------------
 You can find the latest release of the demo for Direct3D 11-compatible Windows-based x64 systems [here](https://github.com/Nbickford/FluidSimulation/releases). Extract /FluidSimulationDemo to any directory and run FluidSimulationDemo.exe to run the demo.
-Make sure to select a discrete graphics card (on most machines, right-click FluidSimulationDemo.exe and select a suitable graphics processor under "Run with graphics processor >", or choose which graphics processor to run the demo with in your NVIDIA or ATI Control Panel)
+
+Make sure to select a discrete graphics card (on most machines, right-click FluidSimulationDemo.exe and select a suitable graphics processor under "Run with graphics processor >", or choose which graphics processor to run the demo with in your NVIDIA or ATI Control Panel).
 
 Controls
 --------
-Left mouse button: Rotate camera
-Right mouse button: Zoom in/out
-+/-: Speed up/slow down time
-r: Reset simulation
+Left mouse button: Rotate camera.
+Right mouse button: Zoom in/out.
++/-: Speed up/slow down time.
+r: Reset simulation.
 
-Neat things about this implementation (Implementation Notes)
-------------------------------------------------------------
+Neat things about this implementation
+-------------------------------------
 Our reference text was this simulation was Bridson's *Fluid Simulation for Computer Graphics*, 2nd ed. (2015), in addition to many other sources (see [the comments](https://github.com/Nbickford/FluidSimulation/blob/master/FluidSimulationDemo/Simulation3D.cpp#L260) for more details). We did a few neat things to make the fluid simulation in the book parallelize well:
 
 **Projection**
@@ -40,29 +47,36 @@ Our reference text was this simulation was Bridson's *Fluid Simulation for Compu
 
 Technical Details
 -----------------
-**Advection:** RK3
-**Particle Velocity Transfer:** Trilinear hat kernel using fast sweeping
-**Projection:** SOR with ghost fluids
-**Rendering:** 2-bounce water reflection and refraction, plus four bounces of internal glass refraction. Using [iq's smoothstep trick](https://www.shadertoy.com/view/XsfGDn) to mildly smooth normals at expense of blockiness.
+**Advection:** RK3.
 
-![Inline gif](https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimLinebreak.gif)
+**Particle Velocity Transfer:** Trilinear hat kernel using fast sweeping.
+
+**Projection:** SOR with ghost fluids.
+
+**Rendering:** 2-bounce water reflection and refraction, plus four bounces of internal glass refraction, using [iq's smoothstep trick](https://www.shadertoy.com/view/XsfGDn) to mildly smooth normals at expense of blockiness.
+
+<div style="text-align:center"><img src ="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimLinebreak.gif" /></div>
 
 Things that Were Not Implemented
 --------------------------------
-I intentionally kept this fluid simulator extremely simple to minimize implementation complexity; as such, this fluid simulator only works for cuboidal domains with no fluid-solid coupling.
-I had problems getting Improved Blobbies to work without also computing and tracking particle radii (in particular, I had problems avoiding significant numbers of visible creases in the level surface with constant particle radii); in the future, a reconstruction method such as Yu and Turk's anisotropic kernel method might be worth considering.
-Caustics were originally [in the plan for rendering](https://twitter.com/neilbickford/status/912404685465649152); unfortunately, these were not implemented due to time constraints, although Guardado and Sánchez-Crespo's method from GPU Gems 1 might work as a way to emulate caustics.
+- I intentionally kept this fluid simulator extremely simple to minimize implementation complexity; as such, this fluid simulator only works for cuboidal domains with no fluid-solid coupling.
+
+- I had problems getting Improved Blobbies to work without also computing and tracking particle radii (in particular, I had problems avoiding significant numbers of visible creases in the level surface with constant particle radii); in the future, a reconstruction method such as Yu and Turk's anisotropic kernel method might be worth considering.
+
+- Caustics were originally [in the plan for rendering](https://twitter.com/neilbickford/status/912404685465649152); unfortunately, these were not implemented due to time constraints, although Guardado and Sánchez-Crespo's method from GPU Gems 1 might work as a way to emulate caustics.
 
 Check out the source code!
 --------------------------
 In addition to the GPU-based high-performance fluid simulator, the repo also has identical 2D and 3D CPU-based versions and (particle) renderers contained in {Simulation2D.cpp, FluidSimDemoOld.cpp} and {Simulation3D.cpp, FluidSimDemoOld3D.cpp}, respectively, which were used to step up to the GPU-based version; these versions are shorter, and are also well-commented.
 
 Simulation2D.cpp: 845 lines of code, 425 semicolons
+
 Simulation3D.cpp: 1162 lines of code, 635 semicolons
+
 Simulation.cpp: 919 lines of code (and 53 kB of HLSL code across 32 files!)
 
 Contributing
 ------------
 Pull requests are welcome; if you have any problems running the executable or working with the code, please email me or open an issue!
 
-Special thanks to Rishi for lending me a laptop to develop this project on when my old laptop broke during Finals!
+Special thanks to Rishi for lending me a laptop to develop this project on when my old laptop broke during Finals.
