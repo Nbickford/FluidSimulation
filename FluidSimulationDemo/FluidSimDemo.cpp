@@ -95,7 +95,7 @@ private:
 
 	float mCamPhi; // from azimuth
 	float mCamTheta;
-	float mCamFOV = MathHelper::Pi/3.0; // vertical field of view (in radians) - initially 60 degrees
+	float mCamFOV = MathHelper::Pi/3.0f; // vertical field of view (in radians) - initially 60 degrees
 
 	POINT mLastMousePos;
 
