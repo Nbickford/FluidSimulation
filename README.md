@@ -65,6 +65,8 @@ Things that Were Not Implemented
 
 - I had problems getting Improved Blobbies to work without also computing and tracking particle radii (in particular, I had problems avoiding significant numbers of visible creases in the level surface with constant particle radii); in the future, a reconstruction method such as Yu and Turk's anisotropic kernel method might be worth considering.
 
+- We don't do any volume control at the moment, which can lead to striking changes in volume!
+
 - Caustics were originally [in the plan for rendering](https://twitter.com/neilbickford/status/912404685465649152); unfortunately, these were not implemented due to time constraints, although Guardado and Sánchez-Crespo's method from GPU Gems 1 might work as a way to emulate caustics.
 
 Check out the source code!
