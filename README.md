@@ -6,7 +6,7 @@ A hybrid real-time GPU-based fluid simulator and renderer written in base C++ an
 </p>
 
 Some notes about this program:
-- Implements hybrid PIC/FLIP simulation using a value of \alpha directly driven by the kinematic viscosity of water
+- Implements hybrid PIC/FLIP simulation using a value of α directly driven by the kinematic viscosity of water
 
 - Runs on base Direct3D 11, so also useful as a relatively minimal reference for setting up such a visualization
 
@@ -35,7 +35,7 @@ Our reference text was this simulation was Bridson's *Fluid Simulation for Compu
 
 **Projection**
 - Because Bridson's preferred MIC(0) preconditioner is nontrivial to implement in a highly parallel way, we instead use successive over-relaxation using a checkerboard update pattern (see [Erik Arnebäck's article](https://erkaman.github.io/posts/gauss_seidel_graph_coloring.html) on using this same technique for more general topologies) to solve the linear system.
-- We constructed a model for the optimal value of the SOR parameter \omega to use by sampling the convergence rate of SOR for thousands of values of \omega across different grid sizes in real-world scenarios ([Simulation3D.cpp#936](https://github.com/Nbickford/FluidSimulation/blob/master/FluidSimulationDemo/Simulation3D.cpp#L936)). With this value of \omega, we get an asymptotic convergence rate of about 1/0.85≈1.17. 
+- We constructed a model for the optimal value of the SOR parameter ω to use by sampling the convergence rate of SOR for thousands of values of ω across different grid sizes ([Simulation3D.cpp#936](https://github.com/Nbickford/FluidSimulation/blob/master/FluidSimulationDemo/Simulation3D.cpp#L936)). With this value of ω, we get an asymptotic convergence rate of about 1/0.85≈1.17. 
 
 **Rendering**
 - We use exactly one triangle to render the entire final frame (reflections, refraction, sky, and all) by implementing a [Shadertoy-style](https://shadertoy.com) raytracer inside a pixel-shader for a full-screen triangle using both distance fields and traditional raytracing techniques.
@@ -55,7 +55,7 @@ Technical Details
 
 **Projection:** SOR with ghost fluids.
 
-**Rendering:** 2-bounce water reflection and refraction, plus four bounces of internal glass refraction, using [iq's smoothstep trick](https://www.shadertoy.com/view/XsfGDn) to mildly smooth normals at expense of blockiness.
+**Rendering:** 2-bounce water reflection and refraction, plus four bounces of internal glass refraction, using [iq's smoothstep trick](https://www.shadertoy.com/view/XsfGDn) to mildly smooth normals at the expense of blockiness.
 
 <div style="text-align:center"><img src ="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimLinebreak.gif" /></div>
 
