@@ -55,9 +55,9 @@ private:
 	void BuildResources();
 private:
 	// ALGORITHM PARAMETERS
-	const int mTexWidth = 32;
-	const int mTexHeight = 32;
-	const int mTexDepth = 32;
+	const int mTexWidth = 64;
+	const int mTexHeight = 64;
+	const int mTexDepth = 64;
 
 	// INPUT LAYOUTS
 	// Layout: Position {x32, y32, z32}
@@ -184,7 +184,7 @@ void BoxApp::OnResize() {
 
 void BoxApp::UpdateView() {
 	// Build the view matrix
-	float rad = 2.0f;
+	float rad = 1.5f;
 	XMVECTOR pos = XMVectorSet(
 		rad*sinf(mCamTheta)*sinf(mCamPhi),
 		rad*cosf(mCamPhi),

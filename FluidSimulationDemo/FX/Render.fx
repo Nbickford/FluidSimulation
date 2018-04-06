@@ -36,6 +36,14 @@ static float mSearch;
 static float3 mM;
 static float3 invmM;
 
+static float3 mGroundColor = float3(0.8f, 0.8f, 0.8f);
+static float3 mSpot = normalize(float3(-0.7f, 0.05f, 0.5f)); // must be normalized
+//static float3 mSpot1Color = 100.0f*pow(float3(252.0 / 255.0, 212.0 / 255.0, 64.0 / 255.0), 1.0 / float3(2.2, 2.2, 2.2));
+//static float  mSpot1Angle = cos(3.14159*0.04);
+
+static const float3 betaR = float3(3.8e-6f, 13.5e-6f, 33.1e-6f);
+static const float betaM = 21e-6f;
+
 // Effects framework linear sampler state
 sampler sam = sampler_state {
 	Texture = gPhi;
@@ -63,7 +71,7 @@ VertexOut VS(uint vid : SV_VertexID)
 	return vout;
 }
 
-static const float w = 0.1;
+static const float w = 0.02;
 static const float largeNum = 100000.0f;
 
 // Accessing particle lists
@@ -98,7 +106,7 @@ float traceFloor(float3 co, float3 ci) {
 
 // Given a point in [0,1], gives the distance to the fluid at p.
 float map(float3 p) {
-#if 0
+#if 1
 	// Use iq's smoothstep trick to get more continuous interpolation results:
 	// http://iquilezles.org/www/articles/texture/texture.htm
 	float3 mp = mM * p + float3(0.5f, 0.5f, 0.5f);
@@ -202,16 +210,72 @@ float fresnelTR(float3 ci, float3 n, float n1, float n2, out float3 rayRefl, out
 	}
 }
 
-// Samples the environment map with the given ray direction.
-float3 sampleEnvironment(float3 ci) {
-	if (ci.y < 0.0) {
-		// Ground
-		return float3(0.8, 0.8, 0.8);
-	}
-	if (dot(ci, float3(1.0, 0.0, 0.0)) > 0.5) {
-		return float3(1.0, 1.0, 1.0);
-	}
-	return float3(0.0, 0.0, 0.0);
+// Simplified HLSL port of the sky code from https://www.shadertoy.com/view/ld3XRr
+// color conversion
+float3 hsv2rgb(float3 c)
+{
+	float4 K = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+	float3 p = abs(frac(c.xxx + K.xyz) * 6.0 - K.www);
+	return c.z * lerp(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
+float3 SKY_grad(float h, float fTime)
+{
+	//Gradient values sampled from a reference image.
+	const float3 r1 = float3(195. / 255., 43. / 255., 6. / 255.);
+	const float3 r2 = float3(228. / 255., 132. / 255., 28. / 255.);
+	const float3 bg1 = float3(168. / 255., 139. / 255., 83. / 255.);
+	const float3 bl1 = float3(86. / 255., 120. / 255., 147. / 255.);
+	const float3 bl2 = float3(96. / 255., 130. / 255., 158. / 255.);
+	const float3 bl3 = float3(96. / 255., 130. / 255., 218. / 255.);
+
+	h = h - h * 0.25*sin(fTime);
+	float3 c;
+	if (h<0.25)
+		c = lerp(r1, r2, 4.*h);
+	else if (h<0.5)
+		c = lerp(r2, bg1, 4.*(h - 0.25));
+	else
+		c = lerp(bg1, bl2, 2.*(h - 0.5));
+
+	float light = 1.0 + 0.25*sin(fTime);
+	return lerp(c, bl3, 0.25 + 0.25*sin(fTime))*light;
+}
+
+float3 sampleEnvironment(float3 dir) {
+	float fTime = -1.95;
+
+	//Pseudo - Rayleigh scattering (daylight blue)
+	float anglePosSun_FromOrigin = acos(dot(dir, mSpot));
+	anglePosSun_FromOrigin = clamp(anglePosSun_FromOrigin, 0., 3.1415926);
+	float posAngle = asin(dir.y);
+
+	float fAtmosphereThickness = 2.0;
+	float fTraversalDistance = 0.35*cos(sqrt(clamp(12.3*posAngle, 0.0, 100.0)) - 0.8) + 0.65;
+
+	float dayV = 0.25 + 0.666*(0.3 + fTraversalDistance)*(dot(dir, mSpot) + 1.0) / 2.0;
+	float dayS = 0.9 - fTraversalDistance / 1.60;
+	float dayH = lerp(0.61, 0.65, dir.y);
+
+	float3 day = hsv2rgb(float3(dayH, dayS, dayV));
+	float3 gradS = SKY_grad(0.75 - 0.75*dot(dir, mSpot)*clamp(1.0 - 3.0*dir.y, 0.0, 1.0)*fTraversalDistance, fTime);
+	float3 gradF = (gradS + day) / 2.0;
+	
+	// SUN
+	//1/x for rapid rise close from d=0
+	//2^abs(x) for soft long range ramp down
+	float d = length(mSpot - dir)*10.;
+	float I = 0.015 / abs(d) + pow(2., -abs(d*2.))*0.4;
+	float3 c = float3(255. / 255., 213. / 255., 73. / 255.);
+	gradF += c * I*8.0;
+
+	//Distribute the excess R light on other components
+	if (gradF.x > 1.0)
+		gradF = gradF + float3(0, (gradF.x - 1.0) / 1.5, (gradF.x - 1.0) / 0.75);
+
+	// Gamma correct
+
+	return pow(abs(gradF), float3(0.4545, 0.4545, 0.4545));
 }
 
 // Given a ray, traces the ray through the glass, returning
@@ -232,7 +296,17 @@ float traceGlass(float3 co, float3 ci, out float3 primRayCo, out float3 primRayC
 	float3 innLow = float3(-0.5, -0.5, -0.5);
 	float3 innHi = float3(0.5, 0.5, 0.5);
 
-	float hMain = intersectAABB(co, ci, boxLow, boxHi, norm1, norm2).x;
+	// First intersection
+	float hMain;
+	// Did we start out inside the inner box?
+	if (abs(co.x) < 0.51f && abs(co.y) < 0.51f && abs(co.z) < 0.51f) {
+		hMain = intersectAABB(co, ci, boxLow, boxHi, norm1, norm2).y;
+		norm1 = -norm2;
+	}
+	else {
+		// from outside the box
+		hMain = intersectAABB(co, ci, boxLow, boxHi, norm1, norm2).x;
+	}
 
 	if (hMain >= largeNum) {
 		return largeNum;
@@ -283,8 +357,8 @@ float traceGlass(float3 co, float3 ci, out float3 primRayCo, out float3 primRayC
 		}
 		else {
 			// On the inner box
-			float phi = map(primRayCo + float3(0.5f, 0.5f, 0.5f));
-			if (phi < 0.0) {
+			float phi = map(primRayCo + 0.001*primRayCi + float3(0.5f, 0.5f, 0.5f));
+			if (phi < 0.0 || true) {
 				// In the water in the box
 				fresnel = fresnelTR(reflVec1, norm1, 1.5, 1.333, reflVec1, transVec1);
 			}
@@ -348,7 +422,7 @@ float4 intersectWater(float3 co, float3 ci, float maxT) {
 		float stepAmt = invmM.x; // currently 1 cell
 		float t = 0.0f;
 		float dt;
-		for (int i = 0; i < 64; i++) {
+		for (int i = 0; i < 128; i++) {
 			dt = map(p);
 			t += stepAmt;
 			if (dt >= 0.0f) {
@@ -394,6 +468,83 @@ float3 computeGradient(float4 pdt) {
 		map(p + e.yyx)) - float3(dt, dt, dt);
 }
 
+// Traces from the water at the given ray for 0 bounces,
+// and returns the resulting color.
+float3 traceWater0(float3 co, float3 ci) {
+	float3 primRayCo, primRayCi, reflSum;
+	float primAlpha;
+	traceGlass(co, ci, primRayCo, primRayCi, primAlpha, reflSum);
+	return primAlpha * sampleEnvironment(primRayCi) + reflSum;
+}
+
+// Traces from the water at the given ray for 1 bounce,
+// generating 2 rays, and returns the resulting color.
+float3 traceWater1(float3 co, float3 ci) {
+	// Step a tiny amount away from the surface
+	co = co + 0.001*ci;
+	// Compute max trace distance
+	float3 null1, null2;
+	float maxT = intersectAABB(co, ci, float3(-0.5, -0.5, -0.5), float3(0.5, 0.5, 0.5), null1, null2).y;
+	// Trace into the water
+	float4 hWater = intersectWater(co, ci, maxT);
+	float3 intersectionPoint = hWater.xyz - float3(0.5, 0.5, 0.5); // need to adjust for shift
+	if (hWater.w >= maxT) {
+		// Did not hit the water
+		return traceWater0(intersectionPoint, ci);
+	}
+	else {
+		// Hit the water; generate a single reflection and transmission ray!
+		// We'll just analytically determine whether we were coming from inside or outside the water
+		float3 norm = normalize(computeGradient(hWater)); // these are the right coordinates for computeGradient
+		float n1 = 1.000; float n2 = 1.333;
+		// If dot(norm, ci)>0.0f, then we were coming from inside the water (so swap n1 and n2, and flip the normal)
+		if (dot(norm, ci) > 0.0f) {
+			n1 = 1.333;
+			n2 = 1.000;
+			norm = -norm;
+		}
+		// Compute reflection and transmission vectors
+		float3 rayRefl;
+		float3 rayTrans;
+		float fresnel = fresnelTR(ci, norm, n1, n2, rayRefl, rayTrans);
+		return fresnel * traceWater0(intersectionPoint, rayRefl) + (1 - fresnel)*traceWater0(intersectionPoint, rayTrans);
+	}
+}
+
+// Traces from the water at the given ray for 2 bounces,
+// generating 4 rays, and returns the resulting color.
+float3 traceWater2(float3 co, float3 ci) {
+	// Step a tiny amount away from the surface
+	co = co + 0.001*ci;
+	// Compute max trace distance
+	float3 null1, null2;
+	float maxT = intersectAABB(co, ci, float3(-0.5, -0.5, -0.5), float3(0.5, 0.5, 0.5), null1, null2).y;
+	// Trace into the water
+	float4 hWater = intersectWater(co, ci, maxT);
+	float3 intersectionPoint = hWater.xyz - float3(0.5, 0.5, 0.5); // need to adjust for shift
+	if (hWater.w >= maxT) {
+		// Did not hit the water
+		return traceWater0(intersectionPoint, ci); // this should indeed be traceWater0
+	}
+	else {
+		// Hit the water; generate a single reflection and transmission ray!
+		// We'll just analytically determine whether we were coming from inside or outside the water
+		float3 norm = normalize(computeGradient(hWater)); // these are the right coordinates for computeGradient
+		float n1 = 1.000; float n2 = 1.333;
+		// If dot(norm, ci)>0.0f, then we were coming from inside the water (so swap n1 and n2, and flip the normal)
+		if (dot(norm, ci) > 0.0f) {
+			n1 = 1.333;
+			n2 = 1.000;
+			norm = -norm;
+		}
+		// Compute reflection and transmission vectors
+		float3 rayRefl;
+		float3 rayTrans;
+		float fresnel = fresnelTR(ci, norm, n1, n2, rayRefl, rayTrans);
+		return fresnel * traceWater1(intersectionPoint, rayRefl) + (1 - fresnel)*traceWater1(intersectionPoint, rayTrans);
+	}
+}
+
 // Pixel shader.
 float4 PS(VertexOut pin) : SV_Target
 {
@@ -416,6 +567,8 @@ float4 PS(VertexOut pin) : SV_Target
 	mR = mRCells * invmM.x;
 	mSearch = mSearchCells * invmM.x;
 
+	float3 col = float3(0.0f, 0.0f, 0.0f);
+
 	// OK.
 	// Our scene model is:
 	// - Water located in [-0.5,0.5]^3.
@@ -436,81 +589,27 @@ float4 PS(VertexOut pin) : SV_Target
 
 	if (firstHit < largeNum) {
 		if (transWeight == 0.0) {
-			return float4(reflSum, 1.0f);
+			col = reflSum;
 		}
-
-		/*float t = map(primRayCo + float3(0.5f, 0.5f, 0.5f));
-		if (t < 0.0f) {
-			return float4(1.0f, 0.0f, 0.0f, 1.0f);
-		}
-		else {
-			return float4(0.0f, 1.0f, 0.0f, 1.0f);
-		}*/
-
-
-		//return float4(0.5f+0.5f*primRayCi, 1.0f);
 
 		// Trace into the water
-		// Compute max trace distance
-		float3 null1, null2;
-		float maxT = intersectAABB(primRayCo, primRayCi, float3(-0.5, -0.5, -0.5), float3(0.5, 0.5, 0.5), null1, null2).y;
-		// Trace into the water
-		float4 hWater = intersectWater(primRayCo, primRayCi, maxT);
+		col = traceWater2(primRayCo, primRayCi);
+	}
+	else {
 
-		if(hWater.w<maxT){
-			// Get the normal
-			float3 waterNormal = normalize(computeGradient(hWater));
-			return float4(waterNormal, 1.0f);
+		// We didn't hit the cube, so render the plane:
+		float h = traceFloor(co, ci);
+		if (h >= largeNum || true) { // We no longer have ground
+			// Didn't hit the plane
+			col = sampleEnvironment(ci);
 		}
 		else {
-			// Did not hit the water
-			return float4(0.5, 0.5, 0.5, 1.0);
+			// Hit the plane; we'll treat this as a slightly reflective surface as well!
+			col = mGroundColor;
 		}
-		
-		//return float4(transWeight*(0.5+0.5f*primRayCo)+reflSum, 1.0f);
-	}
-	else {
-		return float4(0.8, 0.8, 0.8, 1.0);
 	}
 
-	// Get intersection with plane
-	/*float h = traceFloor(co, ci);
-	// Get intersection with outer glass surface
-	float hBox = traceAABB(co, ci, float3(-0.5 - w, -0.5 - w, -0.5 - w), float3(0.5 + w, 0.5, 0.5 + w)).x;
-	if (hBox < largeNum) {
-		// Get intersection with inner glass surface
-		float3 pBox = co + hBox * ci;
-		float2 hInnGlass = traceAABB(pBox, ci, float3(-0.5, -0.5, -0.5), float3(0.5, 0.5, 0.5));
-		if (hInnGlass.x < largeNum) {
-			// Trace through the water until we get a hit!
-
-			float3 pInnGlass = pBox + hInnGlass.x*ci;
-			// The distance to the other end of the cube should be hInnGlass.y-hInnGlass.x.
-			float maxTrace = hInnGlass.y - hInnGlass.x;
-			float4 posWater = intersectWater(pInnGlass, ci, maxTrace);
-			if (posWater.w >= maxTrace) {
-				// Hit the edge without hitting the water
-				return float4(0.0f, 0.0f, 1.0f, 1.0f);
-			}
-			else {
-				// Shade the water
-				float3 normal = normalize(computeGradient(posWater));
-				return float4(0.5f + 0.5f*normal, 1.0f);
-			}
-		}
-
-		return float4(pBox, 1.0f);
-	}*/
-
-	// Sky/land
-	/*if (h < largeNum) {
-		float fV = 0.95f;
-		return float4(fV, fV, fV, 1.0f);
-	}
-	else {
-		float sV = 0.5f;
-		return float4(sV, sV, sV, 1.0f);
-	}*/
+	return float4(pow(abs(col), float3(2.2, 2.2, 2.2)), 1.0f);
 }
 
 technique11 ColorTech

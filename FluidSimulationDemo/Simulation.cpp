@@ -492,7 +492,7 @@ void GPFluidSim::SetParametersConstantBuffer(float dt, float alpha, int slot) {
 void GPFluidSim::Simulate(float dt) {
 	// Clamp maximum dt
 	dt = MathHelper::Clamp(dt, 0.0f, 1.0f / 15.0f);
-	dt /= 16.0f;
+	dt /= 2.0f;
 
 	// Iterate frame counter
 	static int frame = 0;
