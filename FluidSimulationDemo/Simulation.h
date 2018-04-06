@@ -30,6 +30,8 @@ private:
 	void AcquireResources();
 public:
 	void ReleaseResources();
+	void IncreaseSpeed();
+	void DecreaseSpeed();
 private:
 	void CreateTexture3D(ID3D11Texture3D** texPtr, int width, int height, int depth, bool staging=false);
 	void CreateTexture3D(ID3D11Texture3D** texPtr, int width, int height, int depth, bool staging, DXGI_FORMAT format);
@@ -47,7 +49,7 @@ private:
 	template<typename T> void UploadTex(ID3D11Texture3D* destTex, T* srcBuf, int sizeX, int sizeY);
 	template<typename T> T* RetrieveTex(ID3D11Texture3D* srcTex, ID3D11Texture3D* stagingTex, int sizeX, int sizeY, int sizeZ);
 	template<typename T> T* RetrieveBuffer(ID3D11Buffer* srcBuf, ID3D11Buffer* stagingBuf, int len); // Retrieves a raw typed buffer from the GPU.
-	void UploadParticles(ID3D11Buffer* bfrPtr, std::vector<Particle3> srcParticles);
+	void UploadParticles(ID3D11Buffer* bfrPtr, std::vector<float> srcParticles);
 
 	// Utility
 	void SetParametersConstantBuffer(float dt, float alpha, int slot);
@@ -77,7 +79,8 @@ private:
 										// Particle radius
 	float m_pRadius = 1.0f; // Needs to be at least sqrt(3)/2 to avoid particles
 							// getting stuck between cells classified as air
-
+private:
+	float m_simulationRate = 0.5f; // The speed at which we run the simulation
 private:
 	// GPU resources and devices
 	ID3D11Device* md3dDevice;

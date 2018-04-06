@@ -36,12 +36,13 @@ void GPFluidSim::Initialize(ID3D11Device* device,
 }
 
 void GPFluidSim::ResetSimulation() {
-	std::default_random_engine generator(0);
+	std::minstd_rand generator(0); // Just an LCG; it doesn't need to be /that/ good...
 	std::uniform_real_distribution<float> distribution(-0.25f, 0.25f);
 
 	// Create a uniform distribution of particles
 	// and set their velocities
-	std::vector<Particle3> newParticles;
+	std::vector<float> newParticles;
+	newParticles.reserve(4 * mX*mY*mZ);
 	for (int z = 1; z < mZ - 1; z++) {
 		for (int y = 1; y < mY - 1; y++) {
 			for (int x = mX / 2; x < mX - 1; x++) {
@@ -58,7 +59,12 @@ void GPFluidSim::ResetSimulation() {
 							float m1 = rX + u * d + distribution(generator) / m_CellsPerMeter;
 							float m2 = rY + v * d + distribution(generator) / m_CellsPerMeter;
 							float m3 = rZ + w * d + distribution(generator) / m_CellsPerMeter;
-							newParticles.emplace_back(m1, m2, m3, 0.0f, 0.0f, 0.0f);
+							newParticles.push_back(m1);
+							newParticles.push_back(m2);
+							newParticles.push_back(m3);
+							newParticles.push_back(0.0f);
+							newParticles.push_back(0.0f);
+							newParticles.push_back(0.0f);
 						}
 					}
 				}
@@ -68,7 +74,7 @@ void GPFluidSim::ResetSimulation() {
 
 	// Create array of particles if none exists, and set the particles.
 	if (m_gpParticles == nullptr) {
-		numParticles = static_cast<UINT>(newParticles.size());
+		numParticles = static_cast<UINT>(newParticles.size()/6);
 		CreateStructuredBuffer(&m_gpParticles, sizeof(Particle3), numParticles);
 		CreateStructuredBufferSRV(m_gpParticles, &m_gpParticlesSRV, numParticles);
 		CreateStructuredBufferUAV(m_gpParticles, &m_gpParticlesUAV, numParticles);
@@ -82,27 +88,22 @@ void GPFluidSim::ResetSimulation() {
 	UploadParticles(m_gpParticles, newParticles);
 }
 
-/// <summary>Uploads the particles in srcParticles to the buffer pointed
+/// <summary>Uploads the (flattened) particles in srcParticles to the buffer pointed
 /// to by bfrPtr.</summary>
-void GPFluidSim::UploadParticles(ID3D11Buffer* bfrPtr, std::vector<Particle3> srcParticles) {
+void GPFluidSim::UploadParticles(ID3D11Buffer* bfrPtr, std::vector<float> srcParticles) {
 	// Make sure that the particles can fit in the buffer.
 	UINT len = static_cast<UINT>(srcParticles.size());
 	D3D11_BUFFER_DESC bfrDesc;
 	bfrPtr->GetDesc(&bfrDesc);
 	UINT buffSize = bfrDesc.ByteWidth / sizeof(UINT);
-	if (buffSize < 6 * len) {
+	if (buffSize < len) {
 		assert(0 && "GPFluidSim::UploadParticles: Length of particle vector was longer than buffer to copy to!");
 		return;
 	}
 	
 	float* tmpParticles = new float[buffSize];
 	for (UINT i = 0; i < len; i++) {
-		tmpParticles[6 * i + 0] = srcParticles[i].X;
-		tmpParticles[6 * i + 1] = srcParticles[i].Y;
-		tmpParticles[6 * i + 2] = srcParticles[i].Z;
-		tmpParticles[6 * i + 3] = srcParticles[i].uX;
-		tmpParticles[6 * i + 4] = srcParticles[i].uY;
-		tmpParticles[6 * i + 5] = srcParticles[i].uZ;
+		tmpParticles[i] = srcParticles[i];
 	}
 	md3dImmediateContext->UpdateSubresource(m_gpParticles, 0, 0,
 		reinterpret_cast<const void*>(tmpParticles),
@@ -288,6 +289,25 @@ void GPFluidSim::ReleaseResources() {
 	ReleaseCOM(m_gpW);
 	ReleaseCOM(m_gpV);
 	ReleaseCOM(m_gpU);
+}
+
+/// Speeds up the timestep used in the simulation by a factor of two.
+void GPFluidSim::IncreaseSpeed() {
+	m_simulationRate *= 2.0f;
+	if (m_simulationRate >= 1.0f) { // Clamp to at most as fast as reality
+		m_simulationRate = 1.0f;
+	}
+}
+
+/// Slows down the timestep used in the simulation by a factor of two.
+void GPFluidSim::DecreaseSpeed() {
+	m_simulationRate /= 2.0f;
+	// We can go as slow as we like - as long as we don't risk floating-point underflow:
+	// (we would have to press - around 2^7+23 times:)
+	float minRate = std::numeric_limits<float>::denorm_min();
+	if (m_simulationRate <= minRate) {
+		m_simulationRate = minRate;
+	}
 }
 
 /// <summary>Creates a new empty float-based (RW) Texture3D resource on the GPU.</summary>
@@ -491,8 +511,7 @@ void GPFluidSim::SetParametersConstantBuffer(float dt, float alpha, int slot) {
 
 void GPFluidSim::Simulate(float dt) {
 	// Clamp maximum dt
-	dt = MathHelper::Clamp(dt, 0.0f, 1.0f / 15.0f);
-	dt /= 2.0f;
+	dt = MathHelper::Clamp(dt*m_simulationRate, 0.0f, 1.0f / 15.0f);
 
 	// Iterate frame counter
 	static int frame = 0;

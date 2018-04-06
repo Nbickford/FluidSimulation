@@ -95,6 +95,7 @@ private:
 
 	float mCamPhi; // from azimuth
 	float mCamTheta;
+	float mCamFOV = MathHelper::Pi/3.0; // vertical field of view (in radians) - initially 60 degrees
 
 	POINT mLastMousePos;
 
@@ -196,9 +197,8 @@ void BoxApp::UpdateView() {
 	V = XMMatrixInverse(nullptr, V); // Transform back to the matrix W (DX11, pg. 164)
 	// V now stores 90* FOVs in the horizontal and vertical axes; we want to change this
 	// to be a more reasonable FOV in the vertical axis and match the screen size in the horizontal axis.
-	float vFOV = 60.0;
 	// tan(vFOV*/2) = new length of vertical axis
-	float vScale = tanf(0.5f*vFOV*MathHelper::Pi / 180.0f);
+	float vScale = tanf(0.5f*mCamFOV);
 	float hScale = (vScale*mClientWidth) / mClientHeight;
 	V = XMMatrixMultiply(XMMatrixScaling(hScale, vScale, 1.0f), V);
 	XMStoreFloat4x4(&mView, V);
@@ -279,36 +279,28 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y) {
 		mCamPhi = MathHelper::Clamp(mCamPhi, 0.1f, MathHelper::Pi - 0.1f);
 	}
 	if ((btnState & MK_RBUTTON) != 0) {
-		// We just make each pixel correspond to some small factor.
-		// Say, a^(mClientWidth pixels) = 512, so
-		float dx = static_cast<float>(x - mLastMousePos.x);
+		// Zoom in or out of the scene.
+		// Imagine our camera has its viewscreen right in front of it.
+		// When we zoom in, we want to decrease the height of this viewscreen by some
+		// exponential amount. Similarly, when we zoom out, we want to increase
+		// the height of this viewscreen by some exponential amount.
+
+		// Compute dy.
 		float dy = static_cast<float>(y - mLastMousePos.y);
+
+		// Compute the current (unitless) height of this virtual viewscreen.
+		float vHeight = 2.0f*tanf(mCamFOV / 2.0f);
+
+		// Compute the scaling factor, a^(-dy).
+		// We choose a so that a^(mClientHeight) = 16, say:
+		float a = powf(16.0f, 1.0f / mClientHeight);
+
+		vHeight *= powf(a, -dy);
+
+		// Transfer this back to the camera's field of view.
+		mCamFOV = 2.0f*atanf(vHeight / 2.0f);
+		
 	}
-	/*if ((btnState & MK_LBUTTON) != 0) {
-	// Make each pixel correspond to a quarter of a degree.
-	float dx = XMConvertToRadians(
-	0.25f*static_cast<float>(x - mLastMousePos.x));
-	float dy = XMConvertToRadians(
-	0.25f*static_cast<float>(y - mLastMousePos.y));
-
-	// Update angles based on input to orbit camera around box.
-	mTheta += dx;
-	mPhi += dy;
-
-	// Restrict the angle mPhi.
-	mPhi = MathHelper::Clamp(mPhi, 0.1f, MathHelper::Pi - 0.1f);
-	}
-	else if ((btnState & MK_RBUTTON) != 0) {
-	// Make each pixel correspond to 0.005 unit in the scene.
-	float dx = 0.005f*static_cast<float>(x - mLastMousePos.x);
-	float dy = 0.005f*static_cast<float>(y - mLastMousePos.y);
-
-	// Update the camera radius based on input.
-	mRadius += dx - dy;
-
-	// Restrict the radius.
-	mRadius = MathHelper::Clamp(mRadius, 3.0f, 15.0f);
-	}*/
 
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
@@ -318,10 +310,12 @@ void BoxApp::OnCharacterKey(char keyCode) {
 	switch (keyCode) {
 	case '+':
 	case '=': // b/c user doesn't think they need to hold down shift
-		// actually nothing now
+		// Increase the timestep used in the fluid simulation
+		fluidSim.IncreaseSpeed();
 		break;
 	case '-':
-		// actually nothing now
+		// Decrease the timestep used in the fluid simulation
+		fluidSim.DecreaseSpeed();
 		break;
 	case '0':
 		// Reset view

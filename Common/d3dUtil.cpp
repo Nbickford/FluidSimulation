@@ -5,6 +5,10 @@
 #include "d3dUtil.h"
 #include "../Libraries/DirectXTK/DDSTextureLoader.h"
 
+// System libraries for determining file modified dates
+#include <sys/types.h>
+#include <sys/stat.h>
+
 ID3D11ShaderResourceView* d3dHelper::CreateTexture2DArraySRV(
 	ID3D11Device* device, ID3D11DeviceContext* context,
 	std::vector<std::wstring>& filenames)
@@ -228,6 +232,8 @@ void ExtractFrustumPlanes(XMFLOAT4 planes[6], CXMMATRIX M)
 }
 
 // NB utils
+// Note: With regards to Visual Studio also compiling files,
+// this function can be potentially misleading!
 ID3DBlob* d3dUtil::CompileShader(const std::wstring& filename,
 	const D3D_SHADER_MACRO* pDefines,
 	const std::string& entryPoint,
@@ -241,49 +247,85 @@ ID3DBlob* d3dUtil::CompileShader(const std::wstring& filename,
 	ID3DBlob* compiledShader = 0;
 	ID3DBlob* compilationMsgs = 0;
 
-	HRESULT shr = D3DCompileFromFile(filename.c_str(),
-		pDefines,
-		D3D_COMPILE_STANDARD_FILE_INCLUDE,
-		entryPoint.c_str(), target.c_str(), shaderFlags, 0, &compiledShader, &compilationMsgs);
+	// If a .cso version of the file already exists, use that
+	// instead of recompiling the file:
+	// (Note that we don't write out our own .cso versions of files here)
+	size_t lastIndex = filename.find_last_of(L".");
+	assert(lastIndex != std::string::npos); // Assert that our filenames must have extensions
+	std::wstring rawName = filename.substr(0, lastIndex);
+	std::wstring csoName = rawName + L".cso";
 
-	// For the standard file include: Three cheers for
-	// https://github.com/Microsoft/FX11/wiki/D3DX11CompileEffectFromMemory
+	// See https://docs.microsoft.com/en-us/previous-versions/visualstudio/visual-studio-6.0/aa273365(v=vs.60)
+	// for more information on _stat and _wstat
+	bool useCompiledVersion = false;
+	struct _stat result;
+	if (_wstat(filename.c_str(), &result) == 0) {
+		time_t srcModTime = result.st_atime;
 
-	// compilationMsgs can store errors or warnings.
-	if (compilationMsgs != 0) {
+		struct _stat result2;
+		if (_wstat(csoName.c_str(), &result2) == 0) {
+			time_t cmpModTime = result2.st_atime;
 
-		// Suppress warning X4717
-		std::stringstream f((char*)compilationMsgs->GetBufferPointer());
-		std::string line;
-		std::stringstream outss;
-		std::string token = "warning X4717";
-		bool warningX4717 = false; // since we append the extra warning to the end
-		bool otherErrors = false;
-		while (std::getline(f, line)) {
-			if (line.compare(0, token.length(), token) == 0) {
-				warningX4717 = true;
-			}
-			else {
-				outss << line << "\n";
-				otherErrors = true;
+			if (cmpModTime >= srcModTime) {
+				useCompiledVersion = true;
 			}
 		}
-
-		if (warningX4717) {
-			outss << "(effects 11 deprecation warning suppressed)\n";
-		}
-
-		if (otherErrors) {
-			MessageBoxA(0, outss.str().c_str(), "Message from D3D compiler", 0);
-		}
-		ReleaseCOM(compilationMsgs); // otherwise, compilationMsgs is null, so we don't need to release it.
 	}
 
-	// Even if there are no compilationMsgs, check to make sure there
-	// were no other errors.
-	if (FAILED(shr)) {
-		HR(shr);
-	}
+	if (useCompiledVersion) {
+		// Use the compiled version
+		// See https://stackoverflow.com/questions/5020204/loading-a-precompiled-hlsl-shader-into-memory-for-use-with-createpixelshader?utm_medium=organic&utm_source=google_rich_qa&utm_campaign=google_rich_qa
+		D3DReadFileToBlob(csoName.c_str(), &compiledShader);
 
-	return compiledShader;
+		return compiledShader;
+	}
+	else {
+		// Compile it ourselves
+		// For the standard file include: Three cheers for
+		// https://github.com/Microsoft/FX11/wiki/D3DX11CompileEffectFromMemory
+
+		HRESULT shr = D3DCompileFromFile(filename.c_str(),
+			pDefines,
+			D3D_COMPILE_STANDARD_FILE_INCLUDE,
+			entryPoint.c_str(), target.c_str(), shaderFlags, 0, &compiledShader, &compilationMsgs);
+
+		// compilationMsgs can store errors or warnings.
+		if (compilationMsgs != 0) {
+
+			// Suppress warning X4717
+			std::stringstream f((char*)compilationMsgs->GetBufferPointer());
+			std::string line;
+			std::stringstream outss;
+			std::string token = "warning X4717";
+			bool warningX4717 = false; // since we append the extra warning to the end
+			bool otherErrors = false;
+			while (std::getline(f, line)) {
+				if (line.compare(0, token.length(), token) == 0) {
+					warningX4717 = true;
+				}
+				else {
+					outss << line << "\n";
+					otherErrors = true;
+				}
+			}
+
+			if (warningX4717) {
+				outss << "(effects 11 deprecation warning suppressed)\n";
+			}
+
+			if (otherErrors) {
+				MessageBoxA(0, outss.str().c_str(), "Message from D3D compiler", 0);
+			}
+			ReleaseCOM(compilationMsgs); // otherwise, compilationMsgs is null, so we don't need to release it.
+		}
+
+		// Even if there are no compilationMsgs, check to make sure there
+		// were no other errors.
+		if (FAILED(shr)) {
+			HR(shr);
+		}
+
+		return compiledShader;
+	}
+	
 }
