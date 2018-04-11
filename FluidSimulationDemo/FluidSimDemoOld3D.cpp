@@ -1,25 +1,27 @@
 //*****************************************************************
-// BoxDemo.cpp by Frank Luna (C) 2011 All Rights Reserved.
-// Reconstructed for DX11 without D3DX in 2017.
-//
-// Demonstrates rendering a colored box.
+// FluidSimDemoOld3D.cpp
 // Intermediate stage for a fluid renderer (converting a 2D CPU
 // implementation - see FluidSimDemoOld.cpp - to a 3D CPU
 // implementation (here) to a 3D GPU implementation
 // (see FluidSimDemo.cpp).
+//
+// This code is primarily archival, to show how FluidSimDemo.cpp
+// was developed; to run this code, remove the #if 0 ... #endif
+// at the start and end of this file and add #if 0 ... #endif
+// to FluidSimDemo.cpp (or just exclude it from your build)
 // 
 // Controls:
-//   Hold the right mouse button down to zoom in and out.
-//   Press + to zoom in by a factor of 2.
-//   Press - to zoom out by a factor of 2.
-//   Press 0 to return to a centered pixel-for-pixel zoom level.
+//   Hold the left mouse button to orbit around the simulation.
+//   Press 0 to return to a centered zoom level.
 //   Hold the left mouse button down and move the mouse to pan.
 //
+// Authors:
+//   Neil Bickford
 //*****************************************************************
 
 #if 0
-#define BOX_DEMO
-#ifdef BOX_DEMO
+#define FLUID_SIM_DEMO
+#ifdef FLUID_SIM_DEMO
 
 #include "d3dApp.h"
 #include "FX11\d3dx11effect.h"
@@ -37,10 +39,10 @@ struct Point {
 	XMFLOAT3 Pos;
 };
 
-class BoxApp :public D3DApp {
+class FluidSimDemo :public D3DApp {
 public:
-	BoxApp(HINSTANCE hInstance);
-	~BoxApp();
+	FluidSimDemo(HINSTANCE hInstance);
+	~FluidSimDemo();
 
 	bool Init();
 	void OnResize();
@@ -118,7 +120,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 {
 	// Don't enable run-time memory check for debug builds.
 
-	BoxApp theApp(hInstance);
+	FluidSimDemo theApp(hInstance);
 	if (!theApp.Init()) {
 		return 0;
 	}
@@ -127,7 +129,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 }
 
 // Constructor
-BoxApp::BoxApp(HINSTANCE hInstance)
+FluidSimDemo::FluidSimDemo(HINSTANCE hInstance)
 	:D3DApp(hInstance), mQuadVB(0), mQuadIB(0), mFX(0), mTech(0), mInputLayout(0),
 	mZoomFactor(8.0f), mCamPhi(3.1415926535f/2.0f), mCamTheta(0.0f),
 	mDiffuseMap(0), mDiffuseMapSRV(0),
@@ -145,7 +147,7 @@ BoxApp::BoxApp(HINSTANCE hInstance)
 }
 
 // Destructor
-BoxApp::~BoxApp() {
+FluidSimDemo::~FluidSimDemo() {
 	ReleaseCOM(mQuadVB);
 	ReleaseCOM(mQuadIB);
 	ReleaseCOM(mPointVB);
@@ -165,7 +167,7 @@ BoxApp::~BoxApp() {
 }
 
 // Initialization and loading
-bool BoxApp::Init() {
+bool FluidSimDemo::Init() {
 	if (!D3DApp::Init()) {
 		return false;
 	}
@@ -178,7 +180,7 @@ bool BoxApp::Init() {
 	return true;
 }
 
-void BoxApp::OnResize() {
+void FluidSimDemo::OnResize() {
 	// Resize back buffer, depth/stencil buffers
 	D3DApp::OnResize();
 
@@ -190,7 +192,7 @@ void BoxApp::OnResize() {
 	UpdateView();
 }
 
-void BoxApp::UpdateView() {
+void FluidSimDemo::UpdateView() {
 	// Build the view matrix
 	float rad = 2.0f;
 	XMVECTOR pos = XMVectorSet(
@@ -224,7 +226,7 @@ void BoxApp::UpdateView() {
 	// with the centers of the pixels of the screen.
 }
 
-void BoxApp::UpdateScene(float dt) {
+void FluidSimDemo::UpdateScene(float dt) {
 	totalTime += dt;
 
 	UpdateView();
@@ -275,7 +277,7 @@ void BoxApp::UpdateScene(float dt) {
 	delete[] newPoints;
 }
 
-void BoxApp::DrawScene() {
+void FluidSimDemo::DrawScene() {
 	// Clear render targets
 	md3dImmediateContext->ClearRenderTargetView(mRenderTargetView,
 		reinterpret_cast<const float*>(&Colors::Black));
@@ -350,18 +352,18 @@ void BoxApp::DrawScene() {
 }
 
 // Updating
-void BoxApp::OnMouseDown(WPARAM btnState, int x, int y) {
+void FluidSimDemo::OnMouseDown(WPARAM btnState, int x, int y) {
 	mLastMousePos.x = x;
 	mLastMousePos.y = y;
 
 	SetCapture(mhMainWnd); // hmm, interesting
 }
 
-void BoxApp::OnMouseUp(WPARAM btnState, int x, int y) {
+void FluidSimDemo::OnMouseUp(WPARAM btnState, int x, int y) {
 	ReleaseCapture();
 }
 
-void BoxApp::OnMouseMove(WPARAM btnState, int x, int y) {
+void FluidSimDemo::OnMouseMove(WPARAM btnState, int x, int y) {
 	// Orthographic (2D) version
 	if ((btnState & MK_LBUTTON) != 0) {
 		// Each pixel corresponds to one screen pixel.
@@ -418,7 +420,7 @@ void BoxApp::OnMouseMove(WPARAM btnState, int x, int y) {
 	mLastMousePos.y = y;
 }
 
-void BoxApp::OnCharacterKey(char keyCode) {
+void FluidSimDemo::OnCharacterKey(char keyCode) {
 	switch (keyCode) {
 	case '+':
 	case '=': // b/c user doesn't think they need to hold down shift
@@ -441,7 +443,7 @@ void BoxApp::OnCharacterKey(char keyCode) {
 	}
 }
 
-void BoxApp::BuildGeometryBuffers() {
+void FluidSimDemo::BuildGeometryBuffers() {
 	// Create vertex buffer and send it to the GPU
 	Vertex vertices[] =
 	{
@@ -516,7 +518,7 @@ void BoxApp::BuildGeometryBuffers() {
 	delete[] indices2;
 }
 
-void BoxApp::BuildResources() {
+void FluidSimDemo::BuildResources() {
 	// Create the ID3D11 resource, which in this case will be a mTexHeight*mTexWidth checkerboard texture.
 	D3D11_TEXTURE2D_DESC t2dDesc;
 	t2dDesc.Width = mTexWidth;
@@ -578,7 +580,7 @@ void BoxApp::BuildResources() {
 
 
 // Build FX
-void BoxApp::BuildFX() {
+void FluidSimDemo::BuildFX() {
 	DWORD shaderFlags = 0;
 #if defined(DEBUG) || defined(_DEBUG)
 	shaderFlags |= D3D10_SHADER_DEBUG;
@@ -622,7 +624,7 @@ void BoxApp::BuildFX() {
 	mDebugPointsFXViewProj = mDebugPointsFX->GetVariableByName("gViewProj")->AsMatrix();
 }
 
-void BoxApp::BuildVertexLayout() {
+void FluidSimDemo::BuildVertexLayout() {
 	// Create the vertex input layout.
 	D3D11_INPUT_ELEMENT_DESC vertexDesc[] =
 	{

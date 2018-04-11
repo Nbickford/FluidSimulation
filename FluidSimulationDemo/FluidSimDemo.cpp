@@ -2,7 +2,7 @@
 // FluidSimDemo.cpp
 // Renders the fluid simulation from Simulation.cpp and handles
 // application logic.
-// Based in part off of BoxDemo.cpp from Frank Luna (C) 2011.
+// Based in part on BoxDemo.cpp from Frank Luna (C) 2011.
 // 
 // Controls:
 //   Hold the left mouse button to rotate the camera.
