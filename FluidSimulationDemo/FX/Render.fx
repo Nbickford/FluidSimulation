@@ -19,27 +19,13 @@ cbuffer cbConstants {
 
 // PHI
 Texture3D<float> gPhi;
-Texture3D<uint> gOffsets;
-StructuredBuffer<Particle> gParticles;
 
-// Volume parameters
-// r^ (must be equal to m_pRadius in Simulation.h)
-static const float mRHatCells = 1.0f;
-static float mRHat;
-// Drawn particle radius (must be strictly less than mRHatCells!)
-static const float mRCells = 0.5f;
-static float mR;
-// Search radius (usually 2x average particle spacing...or 1 cell)
-static const float mSearchCells = 1.0f;
-static float mSearch;
 // Grid dimensions and inverse grid dimensions
 static float3 mM;
 static float3 invmM;
 
 static float3 mGroundColor = float3(0.8f, 0.8f, 0.8f);
 static float3 mSpot = normalize(float3(-0.7f, 0.05f, 0.5f)); // must be normalized
-//static float3 mSpot1Color = 100.0f*pow(float3(252.0 / 255.0, 212.0 / 255.0, 64.0 / 255.0), 1.0 / float3(2.2, 2.2, 2.2));
-//static float  mSpot1Angle = cos(3.14159*0.04);
 
 static const float3 betaR = float3(3.8e-6f, 13.5e-6f, 33.1e-6f);
 static const float betaM = 21e-6f;
@@ -71,25 +57,8 @@ VertexOut VS(uint vid : SV_VertexID)
 	return vout;
 }
 
-static const float w = 0.02;
-static const float largeNum = 100000.0f;
-
-// Accessing particle lists
-int3 previousCell(int3 p) {
-	int3 ret = p - int3(1, 0, 0);
-	if (ret.x < 0) {
-		ret = ret + int3(mM.x, -1, 0);
-		if (ret.y < 0) {
-			ret = ret + int3(0, mM.y, -1);
-		}
-	}
-	return ret;
-}
-
-uint2 getOffsetStartEnd(int3 p) {
-	int3 pc = previousCell(p);
-	return uint2(gOffsets[pc], gOffsets[p]);
-}
+static const float w = 0.02; // Wall size
+static const float largeNum = 100000.0f; // Generic large number to use if rays don't hit
 
 // Returns the distance along the given ray to the floor, or largeNum if there was no hit.
 float traceFloor(float3 co, float3 ci) {
@@ -562,10 +531,6 @@ float4 PS(VertexOut pin) : SV_Target
 	gPhi.GetDimensions(sizeX, sizeY, sizeZ);
 	mM = float3(sizeX, sizeY, sizeZ);
 	invmM = 1.0f / mM;
-	// We only support cubic textures at the moment :(
-	mRHat = mRHatCells * invmM.x;
-	mR = mRCells * invmM.x;
-	mSearch = mSearchCells * invmM.x;
 
 	float3 col = float3(0.0f, 0.0f, 0.0f);
 
@@ -604,7 +569,7 @@ float4 PS(VertexOut pin) : SV_Target
 			col = sampleEnvironment(ci);
 		}
 		else {
-			// Hit the plane; we'll treat this as a slightly reflective surface as well!
+			// Hit the plane
 			col = mGroundColor;
 		}
 	}
