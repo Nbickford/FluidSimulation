@@ -156,7 +156,6 @@
     <ClCompile Include="..\Common\d3dApp.cpp" />
     <ClCompile Include="..\Common\d3dUtil.cpp" />
     <ClCompile Include="..\Common\GameTimer.cpp" />
-    <ClCompile Include="..\Common\GeometryGenerator.cpp" />
     <ClCompile Include="..\Common\MathHelper.cpp" />
     <ClCompile Include="..\Libraries\DirectXTK\DDSTextureLoader.cpp" />
     <ClCompile Include="..\Libraries\DirectXTK\pch.cpp" />
@@ -172,8 +171,6 @@
     <ClInclude Include="..\Common\d3dUtil.h" />
     <ClInclude Include="..\Common\FX11\d3dx11effect.h" />
     <ClInclude Include="..\Common\GameTimer.h" />
-    <ClInclude Include="..\Common\GeometryGenerator.h" />
-    <ClInclude Include="..\Common\LightHelper.h" />
     <ClInclude Include="..\Common\MathHelper.h" />
     <ClInclude Include="..\Common\odprintf.h" />
     <ClInclude Include="..\Libraries\DirectXTK\dds.h" />
