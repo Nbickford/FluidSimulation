@@ -1,3 +1,9 @@
+//***********************************************
+// GameTimer.cpp
+// Provides a clock for timing applications.
+// From Frank Luna's Direct3D 11 book.
+//***********************************************
+
 #include <Windows.h>
 #include "GameTimer.h"
 

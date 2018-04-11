@@ -1,8 +1,12 @@
+//*********************************************************
+// Visual Studio debugger output printf routine,
+// from http://unixwiz.net/techtips/outputdebugstring.html,
+// modified to use OutputDebugStringA.
+//
+//*********************************************************
+
 #ifndef DX11_ODPRINTF_H
 #define DX11_ODPRINTF_H
-
-// Debugger output printf routine, from http://unixwiz.net/techtips/outputdebugstring.html.
-// Modified to use OutputDebugStringA
 
 #include <stdio.h>
 #include <stdarg.h>

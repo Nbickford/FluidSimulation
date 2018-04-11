@@ -231,7 +231,8 @@ void ExtractFrustumPlanes(XMFLOAT4 planes[6], CXMMATRIX M)
 	}
 }
 
-// NB utils
+// Utility function for compiling Direct3D shaders from files
+// or loading Direct3D compiled shader objects (NB).
 // Note: With regards to Visual Studio also compiling files,
 // this function can be potentially misleading!
 ID3DBlob* d3dUtil::CompileShader(const std::wstring& filename,

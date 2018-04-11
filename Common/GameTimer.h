@@ -1,3 +1,9 @@
+//***********************************************
+// GameTimer.h
+// Provides a clock for timing applications.
+// From Frank Luna's Direct3D 11 book.
+//***********************************************
+
 #ifndef DX11_GAMETIMER_H
 #define DX11_GAMETIMER_H
 

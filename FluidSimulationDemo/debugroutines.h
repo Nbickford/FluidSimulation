@@ -1,3 +1,13 @@
+//*******************************************************
+// debugroutines.h
+// Useful functions for writing the values of complex
+// structures to files or to the Debug window in a human-
+// readable way.
+//
+// Authors:
+//   Neil Bickford
+//*******************************************************
+
 #ifndef NB_DEBUGROUTINES_H
 #define NB_DEBUGROUTINES_H
 

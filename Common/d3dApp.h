@@ -1,3 +1,14 @@
+//**********************************************************
+// d3dApp.h
+// Defines the window and Direct3D initialization procedures
+// for the application.
+// Adapted from Frank Luna's Direct3D 11 book; reconstructed
+// for Direct3D without D3DX here.
+//
+// Authors:
+//   Neil Bickford
+//**********************************************************
+
 #ifndef DX11_D3DAPP_H
 #define DX11_D3DAPP_H
 

@@ -1,4 +1,13 @@
-// d3dApp.cpp. Originally from Frank Luna, reconstructed here.
+//**********************************************************
+// d3dApp.cpp
+// Defines the window and Direct3D initialization procedures
+// for the application.
+// Adapted from Frank Luna's Direct3D 11 book; reconstructed
+// for Direct3D without D3DX here.
+//
+// Authors:
+//   Neil Bickford
+//**********************************************************
 
 #define NOMINMAX // thanks Windows
 #include "d3dApp.h"
@@ -106,7 +115,6 @@ HWND D3DApp::MainWnd() const {
 }
 
 float D3DApp::AspectRatio() const {
-	// Q: why not just (float)?
 	return static_cast<float>(mClientWidth) / mClientHeight;
 }
 
