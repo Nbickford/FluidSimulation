@@ -113,6 +113,12 @@
       <ShaderModel>5.0</ShaderModel>
       <ObjectFileOutput>$(OutDir)FX\%(Filename).cso</ObjectFileOutput>
     </FxCompile>
+    <PreBuildEvent>
+      <Command>
+      </Command>
+      <Message>
+      </Message>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -151,6 +157,12 @@
     <FxCompile>
       <ObjectFileOutput>$(OutDir)FX\%(Filename).cso</ObjectFileOutput>
     </FxCompile>
+    <PreBuildEvent>
+      <Command>
+      </Command>
+      <Message>
+      </Message>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\Common\d3dApp.cpp" />

@@ -23,7 +23,6 @@
 #include <fstream>
 #include <vector>
 #include "MathHelper.h"
-#include "LightHelper.h"
 
 // For nb's d3d utils
 #if defined(DEBUG) || defined(_DEBUG)
