@@ -49,7 +49,7 @@ Our reference text was this simulation was Bridson's *Fluid Simulation for Compu
 - In particular, this means we don't have to implement Marching Cubes. (Inigo Quilez' [Rendering Worlds With Two Triangles](http://www.iquilezles.org/www/material/nvscene2008/nvscene2008.htm) is a pretty good source for showing how this is possible; we reduce "two" to "one" using Timothy Lottes' full-screen triangle trick from [FXAA](https://developer.download.nvidia.com/assets/gamedev/files/sdk/11/FXAA_WhitePaper.pdf))
 
 **Particles and Grids**
-- We use a fast sweeping method instead of a fast marching method to compute our level set and our closest-particle information when transferring particles to the grid; this is easier to parallelize (we avoid another prefix sum) and even runs more quickly in some cases. In practice, most of our time seems to actually be spent binning particles and computing Phi for cells containing particles).
+- We use a fast sweeping method instead of a fast marching method to compute our level set and our closest-particle information when transferring particles to the grid; this is easier to parallelize (we avoid another prefix sum) and even runs more quickly in some cases. In practice, most of our time seems to actually be spent binning particles and computing Phi for cells containing particles.
 
 **Techniques**
 - We checked the GPU version of the 3D code against the CPU version of the code to make sure the results were identical (which happened to uncover a number of subtle bugs and differences along the way - turns out interpolation weights on many GPUs are actually computed using lower-precision fixed-point arithmetic!)
@@ -90,4 +90,4 @@ Contributing
 ------------
 Pull requests are welcome; if you have any problems running the executable, building the project, or working with the code, please email me or open an issue [here](https://github.com/Nbickford/FluidSimulation/issues)!
 
-Special thanks to Rishi for lending me a laptop to develop this project on when my old laptop broke during Finals.
+Special thanks to Rishi for lending me a laptop to develop this project on when my old laptop broke during finals week.
