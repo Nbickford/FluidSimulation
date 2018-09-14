@@ -49,9 +49,9 @@ private:
 	void BuildResources();
 private:
 	// ALGORITHM PARAMETERS
-	const int mTexWidth = 16;
-	const int mTexHeight = 16;
-	const int mTexDepth = 16;
+	const int mTexWidth = 64;
+	const int mTexHeight = 64;
+	const int mTexDepth = 64;
 
 	ID3DX11Effect* mPSRenderFX;
 	ID3DX11EffectTechnique* mPSRenderTech;

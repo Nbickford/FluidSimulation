@@ -567,6 +567,7 @@ void GPFluidSim::AdvectGPU(float dt) {
 	// This might be due to something like what's discussed in
 	// https://devtalk.nvidia.com/default/topic/528016/cuda-programming-and-performance/accuracy-of-1d-linear-interpolation-by-cuda-texture-interpolation/1
 	// which references http://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#linear-filtering?
+	// See also http://iquilezles.org/www/articles/hwinterpolation/hwinterpolation.htm.
 	// If so, then we would expect a first-order quantization error (before RK3) of at most
 	// 2^(-9) times the maximum velocity?
 
