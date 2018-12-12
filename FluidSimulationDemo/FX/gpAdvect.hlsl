@@ -20,7 +20,7 @@ float3 InterpolateMACCell(float3 p) {
 	// Interesting problem: Our textures have samples located at half-pixels!
 	// How can we take p in world-space and convert it to MAC-grid-space?
 	// Answer: When a MAC velocity grid points in a particular direction, it is one
-	// cell longer in that directtion. When it doesn't, it is exactly the length
+	// cell longer in that direction. When it doesn't, it is exactly the length
 	// of the box in that direction (and the half-samples line up). 
 	// Thus, we sample the U grid with coordinates (eX, Y, Z), where Y and Z
 	// are the normal grid coordinates, but eX comes from (via the point-slope formula)
@@ -62,8 +62,6 @@ void main( uint3 DTid : SV_DispatchThreadID )
 	float3 k2 = InterpolateMACCell(p + 0.5*mDT*k1);
 	float3 k3 = InterpolateMACCell(p + 0.75*mDT*k2);
 
-	// TODO: Figure out how to clamp this
-	// This is just the normal code for mX=mY=mZ=16 at the moment
 	float3 minV = -0.4f / mM;
 	float3 maxV = 1.0f - 0.6f / mM;
 	gParticles[DTid.x].pos = clamp(p + mDT*((2.0 / 9.0)*k1 + (3.0 / 9.0)*k2 + (4.0 / 9.0)*k3), minV, maxV);
