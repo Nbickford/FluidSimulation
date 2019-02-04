@@ -510,7 +510,7 @@ void GPFluidSim::SetParametersConstantBuffer(float dt, float alpha, int slot) {
 	md3dImmediateContext->CSSetConstantBuffers(0, 1, &m_gpParametersCB);
 }
 
-void GPFluidSim::Simulate(float dt) {
+void GPFluidSim::Simulate(float dt, const GPUProfiler& profiler) {
 	// Clamp maximum dt
 	dt = MathHelper::Clamp(dt*m_simulationRate, 0.0f, 1.0f / 15.0f);
 
@@ -518,10 +518,10 @@ void GPFluidSim::Simulate(float dt) {
 	static int frame = 0;
 	frame++;
 
-	AdvectGPU(dt); // This is the normal code
+	AdvectGPU(dt, profiler); // This is the normal code
 
 	// Now checked; error of 0.000028 relative to ~0.2.
-	TransferParticlesToGridGPU();
+	TransferParticlesToGridGPU(profiler);
 
 	// For the GPU side, we'll just do this by copying the new grids to the old grids. The standard
 	// pointer-swapping trick doesn't seem to be applicable here, but maybe there's something we
@@ -529,11 +529,12 @@ void GPFluidSim::Simulate(float dt) {
 	md3dImmediateContext->CopyResource(m_gpOldU, m_gpU);
 	md3dImmediateContext->CopyResource(m_gpOldV, m_gpV);
 	md3dImmediateContext->CopyResource(m_gpOldW, m_gpW);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_FLIP_COPYVELOCITIES);
 
 	// Add gravity
-	AddBodyForcesGPU(dt);
+	AddBodyForcesGPU(dt, profiler);
 
-	ProjectGPU(dt);
+	ProjectGPU(dt, profiler);
 
 	// In this step, we also do a hybrid FLIP/PIC step to update the new particle velocities.
 	// Letting alpha be 6*dt*m_nu*m_CellsPerMeter^2 (pg. 118),
@@ -554,15 +555,17 @@ void GPFluidSim::Simulate(float dt) {
 	ID3D11UnorderedAccessView* nullUAVs[1] = { nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 6, nullSRVs6);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_FLIP_APPLY);
 
 	// Finally, blur Phi for rendering:
 	md3dImmediateContext->CSSetShader(m_gpBlurFX, NULL, 0);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpPhiUAV, NULL);
 	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_BLURLEVELSET);
 }
 
-void GPFluidSim::AdvectGPU(float dt) {
+void GPFluidSim::AdvectGPU(float dt, const GPUProfiler& profiler) {
 	// This code matches the code on the GPU for an advection size of dt=0.1
 	// down to a maximum difference of about 10^(-3), which is OK (given how large the velocities are)
 	// This might be due to something like what's discussed in
@@ -593,9 +596,11 @@ void GPFluidSim::AdvectGPU(float dt) {
 	ID3D11ShaderResourceView* nullSRVs[4] = { nullptr, nullptr, nullptr};
 	md3dImmediateContext->CSSetShaderResources(0, 4, nullSRVs);
 	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
+
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_ADVECT);
 }
 
-void GPFluidSim::TransferParticlesToGridGPU() {
+void GPFluidSim::TransferParticlesToGridGPU(const GPUProfiler& profiler) {
 	// This method encapsulates the GPU version of both the ComputeLevelSet
 	// and TransferParticlesToGridMethod.
 
@@ -609,6 +614,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpCountsUAV, NULL);
 	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
 	// (We don't need to clean up for this special case)
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_CLEARCOUNTS);
 
 	// Count how many particles fit in each cell
 	// ASSUMES that particles have already been uploaded
@@ -627,6 +633,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	ID3D11ShaderResourceView* nullSRVs[1] = { nullptr};
 	md3dImmediateContext->CSSetShaderResources(0, 1, nullSRVs);
 	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_COUNTPARTICLES);
 
 	// Next: Do a prefix sum (or just take the maximum, which requires passing another
 	// cbuffer to the method/extending current Parameters, but is simpler) to figure out
@@ -653,6 +660,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	md3dImmediateContext->CopyResource(m_gpIntGridStage, m_gpCounts);
 	D3D11_MAPPED_SUBRESOURCE mapped;
 	md3dImmediateContext->Map(m_gpIntGridStage, 0, D3D11_MAP_READ, 0, &mapped); // modified to be shifted - check rest of code
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_PREFIXSUM_COPYMAP);
 	int* sums = new int[mZ*mapped.DepthPitch/sizeof(float)](); // not sure if this is secure
 	int* mappedData = reinterpret_cast<int*>(mapped.pData);
 	int prevSum = 0;
@@ -667,6 +675,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 			}
 		}
 	}
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_PREFIXSUM_WAIT);
 	md3dImmediateContext->Unmap(m_gpIntGridStage, 0);
 	// Put the results into Counts (we'll recover the results in the next shader)
 	assert(sizeof(int) == 4);
@@ -674,6 +683,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 		mapped.RowPitch, mapped.DepthPitch);
 
 	delete[] sums;
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_PREFIXSUM_UNMAPUPDATE);
 
 	// Finally, put particles into cells.
 	// This modifies gpCounts to become a shifted prefix sum!
@@ -687,6 +697,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	ID3D11UnorderedAccessView* nullUAVs2[2] = { nullptr, nullptr };
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 2, nullUAVs2, NULL);
 	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_BIN);
 
 	// OK! So, to get the index of particles at [x,y,z], we access
 	// the previous cell; to get the number of particles, we subtract
@@ -709,6 +720,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	md3dImmediateContext->CSSetShader(m_gpClearFloatArrayFX, NULL, 0);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpPhiUAV, NULL);
 	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_LEVELSET_CLEAR);
 
 	// Compute closest particles for each known cell and neighboring cell
 	md3dImmediateContext->CSSetShader(m_gpComputeClosestParticleNeighborsFX, NULL, 0);
@@ -718,6 +730,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 2, csCPUAVs2, NULL);
 	SetParametersConstantBuffer(0, 0, 0);
 	md3dImmediateContext->Dispatch((mX + 7) / 8, (mY + 7) / 8, (mZ + 7) / 8);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_LEVELSET_ZERO);
 
 	// Next: extrapolate that to the rest of the grid
 	// This is a series of 24 single-direction sweeps, as listed in the original
@@ -782,6 +795,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 
 	// Unbind UAVs
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 2, nullUAVs2, NULL);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_LEVELSET_SWEEP);
 
 
 	// Next: Transfer particle velocities to grids and extrapolate velocities.
@@ -807,6 +821,7 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	// Clean up
 	ID3D11ShaderResourceView* nullSRVs3[3] = { nullptr, nullptr, nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_VELOCITY);
 
 	// Finally, it turns out we actually need to extrapolate the particle velocities properly
 	// by a single grid cell. We can do this kind of cleverly by implicitly marking invalid
@@ -826,9 +841,10 @@ void GPFluidSim::TransferParticlesToGridGPU() {
 	// Clean up
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
 	md3dImmediateContext->CSSetShader(NULL, NULL, 0);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_TRANSFERPTG_VELOCITY_EXTRAPOLATE);
 }
 
-void GPFluidSim::AddBodyForcesGPU(float dt) {
+void GPFluidSim::AddBodyForcesGPU(float dt, const GPUProfiler& profiler) {
 	// Just adds dt*g to the velocity field
 	SetParametersConstantBuffer(dt, 0, 0);
 	md3dImmediateContext->CSSetShader(m_gpAddBodyForcesFX, NULL, 0);
@@ -838,9 +854,10 @@ void GPFluidSim::AddBodyForcesGPU(float dt) {
 	ID3D11UnorderedAccessView* nullUAVs[1] = { nullptr };
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs, NULL);
 
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_BODYFORCES);
 }
 
-void GPFluidSim::ProjectGPU(float dt) {
+void GPFluidSim::ProjectGPU(float dt, const GPUProfiler& profiler) {
 	// GPU-based version of the Project method (see Simulation2D.cpp or Simulation3D.cpp for more information).
 	// Steps:
 	// 1. Compute right-hand-side (vel, dt => b)
@@ -859,6 +876,7 @@ void GPFluidSim::ProjectGPU(float dt) {
 	// Clean up 1
 	ID3D11ShaderResourceView* nullSRVs3[3] = { nullptr, nullptr, nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_PROJECT_RHS);
 
 	// 2. Compute diagonal coefficients (Phi => diagCoeffs)
 	md3dImmediateContext->CSSetShader(m_gpProjectComputeDiagCoeffsFX, NULL, 0);
@@ -868,11 +886,13 @@ void GPFluidSim::ProjectGPU(float dt) {
 	// Clean up 2
 	ID3D11ShaderResourceView* nullSRVs1[1] = { nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 1, nullSRVs1);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_PROJECT_DIAGCOEFFS);
 
 	// 3a. Set p to 0. (We pass 0 in through the alpha parameter!)
 	md3dImmediateContext->CSSetShader(m_gpClearFloatArrayFX, NULL, 0);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, &m_gpProjectPUAV, NULL);
 	md3dImmediateContext->Dispatch((mX + 3) / 4, (mY + 3) / 4, (mZ + 3) / 4);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_PROJECT_PCLEAR);
 
 	// 3b. Solve the linear system using a 2-color checkerboard Gauss-Seidel iteration.
 	//     (diagCoeffs, Phi, omega, p => new p)
@@ -905,6 +925,7 @@ void GPFluidSim::ProjectGPU(float dt) {
 	ID3D11UnorderedAccessView* nullUAVs1[1] = { nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 3, nullSRVs3);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 1, nullUAVs1, NULL);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_PROJECT_SOR);
 
 	// 4. Compute new velocity fields (p, Phi => U, V, W)
 	md3dImmediateContext->CSSetShader(m_gpProjectToVelFX, NULL, 0);
@@ -918,4 +939,5 @@ void GPFluidSim::ProjectGPU(float dt) {
 	ID3D11UnorderedAccessView* nullUAVs3[3] = { nullptr, nullptr, nullptr };
 	md3dImmediateContext->CSSetShaderResources(0, 2, nullSRVs2);
 	md3dImmediateContext->CSSetUnorderedAccessViews(0, 3, nullUAVs3, NULL);
+    profiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_PROJECT_TOVELOCITY);
 }

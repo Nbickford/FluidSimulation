@@ -35,13 +35,13 @@ void GPUProfiler::ReleaseResources() {
     }
 }
 
-void GPUProfiler::BeginFrame(ID3D11DeviceContext* context) {
+void GPUProfiler::BeginFrame(ID3D11DeviceContext* context) const {
     int captureFrame = (m_framesCollected % 2);
     context->Begin(m_disjointQueries[captureFrame]);
     TimestampComplete(context, GPU_PROFILER_MARK_BEGIN_FRAME);
 }
 
-void GPUProfiler::TimestampComplete(ID3D11DeviceContext* context, GPUProfilerMark mark) {
+void GPUProfiler::TimestampComplete(ID3D11DeviceContext* context, GPUProfilerMark mark) const {
     int captureFrame = (m_framesCollected % 2);
     context->End(m_timestampQueries[captureFrame][mark]);
 }
@@ -83,6 +83,6 @@ void GPUProfiler::EndFrame(ID3D11DeviceContext* context, bool skipLastFrameColle
     m_framesCollected++; // Next frame
 }
 
-float GPUProfiler::DT(GPUProfilerMark mark) {
+float GPUProfiler::DT(GPUProfilerMark mark) const {
     return m_collectedTimes[mark - 1];
 }

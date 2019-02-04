@@ -25,7 +25,7 @@ public:
 	~GPFluidSim();
 	void ResetSimulation();
 
-	void Simulate(float dt);
+	void Simulate(float dt, const GPUProfiler& profiler);
 private:
 	// GPU resource acquisition and destruction
 	void AcquireResources();
@@ -55,10 +55,10 @@ private:
 	// Utility
 	void SetParametersConstantBuffer(float dt, float alpha, int slot);
 private:
-	void AdvectGPU(float dt);
-	void TransferParticlesToGridGPU();
-	void AddBodyForcesGPU(float dt);
-	void ProjectGPU(float dt);
+	void AdvectGPU(float dt, const GPUProfiler& profiler);
+	void TransferParticlesToGridGPU(const GPUProfiler& profiler);
+	void AddBodyForcesGPU(float dt, const GPUProfiler& profiler);
+	void ProjectGPU(float dt, const GPUProfiler& profiler);
 private:
 	// Extents of the fluid simulation in cells
 	int mX;

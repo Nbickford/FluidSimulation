@@ -169,9 +169,7 @@ void FluidSimDemo::UpdateScene(float dt) {
 
 	UpdateView();
 
-	fluidSim.Simulate(dt);
-    
-    mProfiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_UPDATE);
+	fluidSim.Simulate(dt, mProfiler);
 }
 
 void FluidSimDemo::DrawScene() {
@@ -210,10 +208,32 @@ void FluidSimDemo::DrawScene() {
 	HR(mSwapChain->Present(0, 0));
 
     mProfiler.EndFrame(md3dImmediateContext);
-    odprintf("GPU time:\t%.2fms\t%.2fms\t%.2fms",
-        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_UPDATE),
+    odprintf("GPU time:\tA     \tTCC   \tTCP   \tTPC   \tTPW   \tTPU   \tTB    \tTLC   \tTLZ   \tTLS   \tTV    \tTE    \tFC    \tB     \tPR    \tPD    \tPP    \tPS    \tPTV   \tFCV   \tBLS   \tD     \tEF");
+    odprintf("GPU time:\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms\t%.2fms",
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_ADVECT),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_CLEARCOUNTS),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_COUNTPARTICLES),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_PREFIXSUM_COPYMAP),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_PREFIXSUM_WAIT),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_PREFIXSUM_UNMAPUPDATE),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_BIN),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_LEVELSET_CLEAR),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_LEVELSET_ZERO),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_LEVELSET_SWEEP),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_VELOCITY),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_TRANSFERPTG_VELOCITY_EXTRAPOLATE),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_FLIP_COPYVELOCITIES),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_BODYFORCES),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_PROJECT_RHS),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_PROJECT_DIAGCOEFFS),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_PROJECT_PCLEAR),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_PROJECT_SOR),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_PROJECT_TOVELOCITY),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_FLIP_APPLY),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_BLURLEVELSET),
         1000.0 * mProfiler.DT(GPU_PROFILER_MARK_DRAW),
-        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_END_FRAME));
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_END_FRAME)
+    );
 }
 
 // Updating
