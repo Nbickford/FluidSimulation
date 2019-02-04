@@ -21,6 +21,7 @@
 
 #include "d3dApp.h"
 #include "FX11\d3dx11effect.h"
+#include "GPUProfiler.h"
 #include "MathHelper.h"
 #include "odprintf.h"
 #include "Simulation.h"
@@ -69,6 +70,7 @@ private:
 	// Local game state
 	float totalTime = 0.0f; // NOTE: This is a problem, since it'll start to have problems after ~ 77 hours.
 	GPFluidSim fluidSim;
+    GPUProfiler mProfiler;
 };
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -102,6 +104,7 @@ FluidSimDemo::FluidSimDemo(HINSTANCE hInstance)
 // Destructor
 FluidSimDemo::~FluidSimDemo() {
 	fluidSim.ReleaseResources();
+    mProfiler.ReleaseResources();
 
 	// Release effects
 	// TODO (neil): Should we release effect variables and techniques as well?
@@ -121,6 +124,7 @@ bool FluidSimDemo::Init() {
 	}
 
 	fluidSim.Initialize(md3dDevice, md3dImmediateContext);
+    mProfiler.Initialize(md3dDevice);
 
 	BuildGeometryBuffers();
 	BuildFX();
@@ -159,11 +163,15 @@ void FluidSimDemo::UpdateView() {
 }
 
 void FluidSimDemo::UpdateScene(float dt) {
+    mProfiler.BeginFrame(md3dImmediateContext);
+
 	totalTime += dt;
 
 	UpdateView();
 
 	fluidSim.Simulate(dt);
+    
+    mProfiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_UPDATE);
 }
 
 void FluidSimDemo::DrawScene() {
@@ -194,10 +202,18 @@ void FluidSimDemo::DrawScene() {
 		md3dImmediateContext->Draw(3, 0);
 	}
 
+    mProfiler.TimestampComplete(md3dImmediateContext, GPU_PROFILER_MARK_DRAW);
+
 	// Unbind SRVs here
 	mPSRenderPhi->SetResource(NULL);
 	mPSRenderTech->GetPassByIndex(0)->Apply(0, md3dImmediateContext);
 	HR(mSwapChain->Present(0, 0));
+
+    mProfiler.EndFrame(md3dImmediateContext);
+    odprintf("GPU time:\t%.2fms\t%.2fms\t%.2fms",
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_UPDATE),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_DRAW),
+        1000.0 * mProfiler.DT(GPU_PROFILER_MARK_END_FRAME));
 }
 
 // Updating

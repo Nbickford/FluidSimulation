@@ -63,6 +63,9 @@
     <ClCompile Include="Simulation.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GPUProfiler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Common\d3dApp.h">
@@ -117,6 +120,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="ParticleDefs.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="GPUProfiler.h">
       <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
