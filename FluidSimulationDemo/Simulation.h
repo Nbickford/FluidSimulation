@@ -10,10 +10,11 @@
 #define FSD_SIMULATION_H
 
 #include <vector>
-#include "MathHelper.h"
 #include "d3dUtil.h"
-#include "ParticleDefs.h"
 #include "FX11\d3dx11effect.h"
+#include "GPUProfiler.h"
+#include "MathHelper.h"
+#include "ParticleDefs.h"
 using namespace DirectX;
 
 // Represents the current state of a fluid simulation.

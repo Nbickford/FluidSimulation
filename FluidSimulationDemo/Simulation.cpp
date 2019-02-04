@@ -7,6 +7,7 @@
 //************************************************************
 
 #include "Simulation.h"
+#include "GPUProfiler.h"
 #include "odprintf.h"
 #include <limits>
 #include <queue> // For serial extrapolation - see ExtrapolateValues(4).
