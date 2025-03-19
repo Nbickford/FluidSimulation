@@ -2,7 +2,7 @@
 A hybrid real-time GPU-based fluid simulator and renderer written from the ground up in C++ and Direct3D 11.
 
 <p align="center">
-  <img src="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimHeader.gif">
+  <img src="https://github.com/Nbickford/FluidSimulation/blob/main/Markdown/fluidsimHeader.gif?raw=true">
 </p>
 
 Some notes about this program:
@@ -41,7 +41,7 @@ Our reference text was this simulation was Bridson's *Fluid Simulation for Compu
 - We constructed a model for the optimal value of the SOR parameter ω to use by sampling the convergence rate of SOR for thousands of values of ω across different grid sizes ([Simulation3D.cpp#936](https://github.com/Nbickford/FluidSimulation/blob/master/FluidSimulationDemo/Simulation3D.cpp#L936)). With this value of ω, we get an asymptotic convergence rate of about 1/0.85≈1.17. 
 
 <p align="center">
-  <img src="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/omegaChart700.png">
+  <img src="https://raw.githubusercontent.com/Nbickford/FluidSimulation/refs/heads/main/Markdown/omegaChart700.png?raw=true">
 </p>
 
 **Rendering**
@@ -64,7 +64,7 @@ Technical Details
 
 **Rendering:** 2-bounce water reflection and refraction, plus four bounces of internal glass refraction, using [iq's smoothstep trick](https://www.shadertoy.com/view/XsfGDn) to mildly smooth normals at the expense of blockiness.
 
-<div style="text-align:center"><img src ="https://github.com/Nbickford/FluidSimulation/raw/master/Markdown/fluidsimLinebreak.gif" /></div>
+<div style="text-align:center"><img src ="https://github.com/Nbickford/FluidSimulation/blob/main/Markdown/fluidsimLinebreak.gif?raw=true" /></div>
 
 Things that Were Not Implemented
 --------------------------------
@@ -74,7 +74,7 @@ Things that Were Not Implemented
 
 - We don't do any volume control at the moment, which can lead to some really striking changes in volume!
 
-- Caustics were originally [in the plan for rendering](https://twitter.com/neilbickford/status/912404685465649152); unfortunately, these were not implemented due to time constraints, although Guardado and Sánchez-Crespo's method from GPU Gems 1 might work as a way to emulate caustics.
+- Caustics were originally [in the plan for rendering](https://neilbickford.com/archive/twitter/neilbickford/status/912404685465649152/); unfortunately, these were not implemented due to time constraints, although Guardado and Sánchez-Crespo's method from GPU Gems 1 might work as a way to emulate caustics.
 
 Check out the source code!
 --------------------------
